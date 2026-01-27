@@ -600,8 +600,15 @@ def dffixer(df, RET, ifdata):
         If RET == 'HIST':
             tuple: (color_hist, x1_hist) - histogram counts per bin
         If RET == 'ANALYSIS':
-            tuple: (color_hist, x1_hist, high_split_mures, low_split_mures,
-                    high_split_rms, low_split_rms, high_nevt, low_nevt)
+            dict: Dictionary with keys:
+                'color_hist': Color histogram counts
+                'x1_hist': x1 histogram counts
+                'mures_high': High-mass Hubble residuals
+                'mures_low': Low-mass Hubble residuals
+                'rms_high': High-mass RMS
+                'rms_low': Low-mass RMS
+                'nevt_high': High-mass event count
+                'nevt_low': Low-mass event count
         Else:
             str: 'No output'
     """
@@ -622,7 +629,7 @@ def dffixer(df, RET, ifdata):
         cpops.append(np.sum(df.loc[df.ibin_c == q].NEVT))
     cpops = np.array(cpops)
 
-    # x1 (stretch) histogram (new)
+    # x1 (stretch) histogram
     # Check if x1 bins exist in dataframe
     if 'ibin_x1' in df.columns:
         for q in np.unique(df.ibin_x1.values):
@@ -638,7 +645,17 @@ def dffixer(df, RET, ifdata):
     if RET == 'HIST':
         return cpops, x1pops
     elif RET == 'ANALYSIS':
-        return (cpops), (x1pops), (highrespops/dfhigh.NEVT.values), (lowrespops/dflow.NEVT.values), (highRMS), (lowRMS), (highNEVT), (lowNEVT)
+        # Return dictionary structure for cleaner access
+        return {
+            'color_hist': cpops,
+            'x1_hist': x1pops,
+            'mures_high': highrespops/dfhigh.NEVT.values,
+            'mures_low': lowrespops/dflow.NEVT.values,
+            'rms_high': highRMS,
+            'rms_low': lowRMS,
+            'nevt_high': highNEVT,
+            'nevt_low': lowNEVT
+        }
     else:
         return 'No output'
     #END dffixer
@@ -652,19 +669,14 @@ def LL_Creator(inparr, simbeta, simsigint, returnall_2=False):
     - Stretch (x1) histogram
     - Hubble residuals (MURES) split by mass (high/low)
     - Hubble residual scatter (RMS) split by mass (high/low)
-    - Beta parameter
+    - Beta parameter (color-luminosity relation)
     - Intrinsic scatter (sigint)
 
     Args:
-        inparr: List of [data, sim] pairs for each observable:
-                [0]: [color_hist_data, color_hist_sim]
-                [1]: [x1_hist_data, x1_hist_sim]
-                [2]: [mures_high_data, mures_high_sim]
-                [3]: [mures_low_data, mures_low_sim]
-                [4]: [rms_high_data, rms_high_sim]
-                [5]: [rms_low_data, rms_low_sim]
-                [-2]: [nevt_high]
-                [-1]: [nevt_low]
+        inparr: Dictionary with [data, sim] pairs for each observable:
+                Keys: 'color_hist', 'x1_hist', 'mures_high', 'mures_low',
+                      'rms_high', 'rms_low', 'nevt_high', 'nevt_low'
+                Each value is [real_data, sim_data]
         simbeta: Beta parameter from simulation fit
         simsigint: Intrinsic scatter from simulation fit
         returnall_2: If True, return detailed components (default: False)
@@ -673,67 +685,115 @@ def LL_Creator(inparr, simbeta, simsigint, returnall_2=False):
         If returnall_2 is False:
             float: Total log-likelihood
         If returnall_2 is True:
-            tuple: (LL_list, datacount_list, simcount_list, poisson_list)
-                   where LL_list contains individual chi-squared contributions
+            tuple: (LL_dict, datacount_dict, simcount_dict, poisson_dict)
+                   where LL_dict contains individual chi-squared contributions by name
     """
     RMS_weight = 1
+    LL_dict = {}
+
     if returnall_2:
-        datacount_list = []
-        simcount_list = []
-        poisson_list = []
-    LL_list = []
-    print('real beta, sim beta, real beta error', realbeta, simbeta, realbetaerr,flush=True)
-    LL_Beta = -0.5 * ((realbeta - simbeta) ** 2 / realbetaerr**2)
-    LL_sigint = -0.5 * ((realsigint - simsigint) ** 2 / realsiginterr**2)
+        datacount_dict = {}
+        simcount_dict = {}
+        poisson_dict = {}
 
-    # Process observables (skip last 2 elements which are nevt arrays)
-    for n, i in enumerate(inparr[:-2]):
-        if n == 0: #color histogram
-            datacount,simcount,poisson,ww = normhisttodata(i[0], i[1])
-        elif n == 1: #x1 (stretch) histogram
-            # Only compute if x1 histogram exists (check if array is non-empty)
-            if len(i[0]) > 0 and len(i[1]) > 0:
-                datacount,simcount,poisson,ww = normhisttodata(i[0], i[1])
-            else:
-                # Skip x1 histogram if not present - placeholder to keep indexing
-                LL_list.append(0.0)
-                if returnall_2:
-                    datacount_list.append(np.array([]))
-                    simcount_list.append(np.array([]))
-                    poisson_list.append(np.array([]))
-                continue
-        elif n == 2: #Hi mass MURES
-            datacount = i[0]
-            simcount  = i[1]
-            poisson = inparr[4][0]/np.sqrt(inparr[-2][0]) #uses RMS/sqrt(N) as error
-        elif n == 3: #lo mass MURES
-            datacount = i[0]
-            simcount  = i[1]
-            poisson = inparr[5][0]/np.sqrt(inparr[-1][0]) #uses RMS/sqrt(N) as error
-        elif n == 4: #Hi mass RMS
-            datacount = i[0]
-            simcount = i[1]
-            poisson = i[0]/np.sqrt(2*inparr[-2][0]) #The error on the error is sigma/sqrt(2N)
-        elif n == 5: #low mass RMS
-            datacount = i[0]
-            simcount = i[1]
-            poisson = i[0]/np.sqrt(2*inparr[-1][0])
+    # ========== Parameter likelihood terms ==========
+    # Beta (color-luminosity relation)
+    print('real beta, sim beta, real beta error', realbeta, simbeta, realbetaerr, flush=True)
+    LL_dict['beta'] = -0.5 * ((realbeta - simbeta) ** 2 / realbetaerr**2)
 
-        LL_c = -0.5 * np.sum((datacount - simcount) ** 2 / poisson**2)
-        if n==4: LL_c = LL_c * RMS_weight  # Hi mass RMS
-        elif n==5: LL_c = LL_c * RMS_weight  # Lo mass RMS
-        LL_list.append(LL_c)
+    # Intrinsic scatter
+    LL_dict['sigint'] = -0.5 * ((realsigint - simsigint) ** 2 / realsiginterr**2)
+
+    # ========== Observable distributions ==========
+    # Get event counts for error calculations
+    nevt_high = inparr['nevt_high'][0]
+    nevt_low = inparr['nevt_low'][0]
+
+    # Color histogram
+    data, sim = inparr['color_hist']
+    datacount, simcount, poisson, ww = normhisttodata(data, sim)
+    LL_dict['color_hist'] = -0.5 * np.sum((datacount - simcount) ** 2 / poisson**2)
+    if returnall_2:
+        datacount_dict['color_hist'] = datacount
+        simcount_dict['color_hist'] = simcount
+        poisson_dict['color_hist'] = poisson
+
+    # X1 (stretch) histogram
+    data, sim = inparr['x1_hist']
+    if len(data) > 0 and len(sim) > 0:
+        datacount, simcount, poisson, ww = normhisttodata(data, sim)
+        LL_dict['x1_hist'] = -0.5 * np.sum((datacount - simcount) ** 2 / poisson**2)
         if returnall_2:
-            datacount_list.append(datacount)
-            simcount_list.append(simcount)
-            poisson_list.append(poisson)
-    LL_list.append(LL_Beta)
-    LL_list.append(LL_sigint)
-    LL_list = np.array(LL_list)
-    if not returnall_2:
-        return np.nansum(LL_list)
+            datacount_dict['x1_hist'] = datacount
+            simcount_dict['x1_hist'] = simcount
+            poisson_dict['x1_hist'] = poisson
     else:
-        return (LL_list), datacount_list, simcount_list, poisson_list
+        # Skip if x1 histogram not available
+        LL_dict['x1_hist'] = 0.0
+        if returnall_2:
+            datacount_dict['x1_hist'] = np.array([])
+            simcount_dict['x1_hist'] = np.array([])
+            poisson_dict['x1_hist'] = np.array([])
+
+    # High-mass MURES
+    data, sim = inparr['mures_high']
+    poisson = inparr['rms_high'][0] / np.sqrt(nevt_high)
+    LL_dict['mures_high'] = -0.5 * np.sum((data - sim) ** 2 / poisson**2)
+    if returnall_2:
+        datacount_dict['mures_high'] = data
+        simcount_dict['mures_high'] = sim
+        poisson_dict['mures_high'] = poisson
+
+    # Low-mass MURES
+    data, sim = inparr['mures_low']
+    poisson = inparr['rms_low'][0] / np.sqrt(nevt_low)
+    LL_dict['mures_low'] = -0.5 * np.sum((data - sim) ** 2 / poisson**2)
+    if returnall_2:
+        datacount_dict['mures_low'] = data
+        simcount_dict['mures_low'] = sim
+        poisson_dict['mures_low'] = poisson
+
+    # High-mass RMS
+    data, sim = inparr['rms_high']
+    poisson = data / np.sqrt(2 * nevt_high)
+    LL_dict['rms_high'] = -0.5 * np.sum((data - sim) ** 2 / poisson**2) * RMS_weight
+    if returnall_2:
+        datacount_dict['rms_high'] = data
+        simcount_dict['rms_high'] = sim
+        poisson_dict['rms_high'] = poisson
+
+    # Low-mass RMS
+    data, sim = inparr['rms_low']
+    poisson = data / np.sqrt(2 * nevt_low)
+    LL_dict['rms_low'] = -0.5 * np.sum((data - sim) ** 2 / poisson**2) * RMS_weight
+    if returnall_2:
+        datacount_dict['rms_low'] = data
+        simcount_dict['rms_low'] = sim
+        poisson_dict['rms_low'] = poisson
+
+    # Calculate total log-likelihood with error checking
+    # Check for NaN or inf values in any component
+    invalid_components = []
+    for key, value in LL_dict.items():
+        if not np.isfinite(value) or (isinstance(value, np.ndarray) and not np.all(np.isfinite(value))):
+            invalid_components.append(key)
+
+    if invalid_components:
+        print(f'WARNING: Invalid (NaN/inf) likelihood components: {invalid_components}', flush=True)
+        print(f'LL_dict values: {LL_dict}', flush=True)
+        if not returnall_2:
+            return -np.inf
+        else:
+            # Return -inf as total, but still return the dict for debugging
+            return LL_dict, datacount_dict, simcount_dict, poisson_dict
+
+    # All components are valid, sum them
+    total_LL = sum(LL_dict.values())
+
+    if not returnall_2:
+        return total_LL
+    else:
+        return LL_dict, datacount_dict, simcount_dict, poisson_dict
     #END LL_Creator
     
 def pltting_func(samples, INP_PARAMS, ndim):
@@ -1191,15 +1251,14 @@ def log_likelihood(theta, connection=False, returnall=False, genpdf_only=False):
         #ANALYSIS returns c, highres, lowres, rms                                         
         print('Right before calculation',flush=True)                                      
         try:
-            bindf = connection.bindf #THIS IS THE PANDAS DATAFRAME OF THE OUTPUT FROM SALT2mu       
-            bindf = bindf.dropna()                                                        
-            sim_vals = dffixer(bindf, 'ANALYSIS', False)                                  
-            realbindf = realdata.bindf #same for the real data (was a global variable)    
-            realbindf = realbindf.dropna()                                                
-            real_vals = dffixer(realbindf, 'ANALYSIS', True)                              
-            resparr = []   
-            for lin in range(len(real_vals)):                                             
-                resparr.append([real_vals[lin],sim_vals[lin]])                            
+            bindf = connection.bindf #THIS IS THE PANDAS DATAFRAME OF THE OUTPUT FROM SALT2mu
+            bindf = bindf.dropna()
+            sim_vals = dffixer(bindf, 'ANALYSIS', False)
+            realbindf = realdata.bindf #same for the real data (was a global variable)
+            realbindf = realbindf.dropna()
+            real_vals = dffixer(realbindf, 'ANALYSIS', True)
+            # Build dictionary pairing data and simulation values
+            resparr = {key: [real_vals[key], sim_vals[key]] for key in real_vals.keys()}                            
         except Exception as e:
             print(e)
             print('WARNING! something went wrong in reading in stuff for the LL calc')    
