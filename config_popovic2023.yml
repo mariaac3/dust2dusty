@@ -37,13 +37,13 @@ SPLITARR: {'HOST_LOGMASS':'np.arange(5,15,1)', 'SIM_ZCMB':'np.linspace(-2.4,2.6,
 ### DEFAULTS ###
 # These should not be messed with, but are included by default in the input file.
 # Right now the dictionary entries are made by hand, and need to match any split options.
-#CLEANDICT: Contains walker and boundary information. Walkers are initialised in Gaussian spread
+#PARAMETER_INITIALIZATION: Contains walker and boundary information. Walkers are initialised in Gaussian spread
 #First Entry is the mean starting location for the walker
 #Second Entry is the stdev of starting locations for the walker
 #Third Entry is whether or not the mean value of the walker needs to be true (eg for stdevs)
 #Fourth Entry 
 
-CLEANDICT:  {'c_mu':[-0.08, 0.01, False, [-0.3,-0.04]],
+PARAMETER_INITIALIZATION:  {'c_mu':[-0.08, 0.01, False, [-0.3,-0.04]],
              'c_std':[0.044, 0.02, True, [0.01, 0.2]],                                           
              'x1_mu':[0,0.05, False, [-2,2]],
              'RV_mu_HOST_LOGMASS_low':[2, 0.5, True, [0.8, 4]],
@@ -57,4 +57,3 @@ CLEANDICT:  {'c_mu':[-0.08, 0.01, False, [-0.3,-0.04]],
              'beta_mu':[2, 0.5, False, [1,3]],
              'beta_std':[.2, .07, True, [0, 1]],
 } 
-

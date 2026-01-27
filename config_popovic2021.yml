@@ -1,0 +1,69 @@
+### FILE LOCATIONS ###
+# DATA_INPUT is the SALT2mu file that will be used as 'data'. 
+# This can either be real data or a realistic simulation with the appropriate force_realdata flag
+# Full filepath or local directory is fine.
+# 
+# SIM_INPUT is the SALT2mu file that points to appropriate bounded functions to be reweighted.
+# Alternatively, this can be used with NOWEIGHT option for a non-bounded function.
+# Full filepath or local directory is fine
+#  
+# OUTDIR is a custom directory to output results to, including log files.
+# Full filepath needed for this one.
+# 
+# CHAINS is a filepath to the npz file containing the chain output from a previous run.
+# 
+# SIMREF_FILE - if using bounding functions, point to the SNANA input that contains these bounding functions.
+
+DATA_INPUT: /project2/rkessler/SURVEYS/DES/USERS/djbrout/dustdriver/SALT2mu_ALL_DATA.input
+SIM_INPUT:  /project2/rkessler/SURVEYS/DES/USERS/djbrout/dustdriver/SALT2mu_ALL_BOUND.input
+OUTDIR: ~
+CHAINS: ~
+SIMREF_FILE: /scratch/midway2/rkessler/PIPPIN_OUTPUT/HIGH-REDSHIFT-BOUND/1_SIM/SIMDES_4D_BS20/PIP_HIGH-REDSHIFT-BOUND_SIMDES_4D_BS20.input
+WALKFACTOR: 2
+CONTINUITY: False
+
+### INPUT OPTIONS ###
+# x1 (stretch) now included with Skewed Gaussian distribution split by HOST_LOGMASS
+# This allows for asymmetric x1 distributions between low and high mass galaxies
+INP_PARAMS: ['c', 'x1', 'RV', 'EBV', 'beta'] #The parameters to be fitted.
+PARAMSHAPESDICT: {'c': 'Gaussian', 'x1': 'Skewed Gaussian', 'RV':'Gaussian', 'EBV':'Exponential', 'beta':'Gaussian'} #The shapes of these parameters.
+SPLITPARAM: HOST_LOGMASS
+TRUEPARAM: HOST_LOGMASS
+SPLITDICT: {'x1': {'HOST_LOGMASS': 10}, 'RV': {'HOST_LOGMASS': 10 }, 'EBV': {'SIM_ZCMB': 0.1, 'HOST_LOGMASS': 10}} #A nested dictionary informing any splits.
+PARAMS: [-0.08827198, 0.05043889, 0.0, 1.0, 1.0, 0.2, 1.2, 1.2, 2.95953092, 1.19440396, 1.99422843, 0.72706128, 0.09966235, 0.10151627, 0.12812847, 0.12945593, 1.7478346, 0.27062389] #This feature is only used in conjunction with the "SINGLE" command line argument. Order: c(2), x1(6), RV(4), EBV(4), beta(2)
+
+# SPLITARR is the array to generate over for multi dimensional GENPDFS.
+SPLITARR: {'HOST_LOGMASS':'np.arange(5,15,1)', 'SIM_ZCMB':'np.linspace(-2.4,2.6,3)'}
+
+### DEFAULTS ###
+# These should not be messed with, but are included by default in the input file.
+# Right now the dictionary entries are made by hand, and need to match any split options.
+#PARAMETER_INITIALIZATION: Contains walker and boundary information. Walkers are initialised in Gaussian spread
+#First Entry is the mean starting location for the walker
+#Second Entry is the stdev of starting locations for the walker
+#Third Entry is whether or not the mean value of the walker needs to be true (eg for stdevs)
+#Fourth Entry is [lower_bound, upper_bound] for the parameter
+
+PARAMETER_INITIALIZATION:  {'c_mu':[-0.08, 0.01, False, [-0.3,-0.04]],
+             'c_std':[0.044, 0.02, True, [0.01, 0.2]],
+             # x1 (stretch) parameters with Skewed Gaussian and HOST_LOGMASS split
+             # mu: mean of x1 distribution
+             # std_l: left (negative) standard deviation for asymmetry
+             # std_r: right (positive) standard deviation for asymmetry
+             'x1_mu_HOST_LOGMASS_low':[0.0, 0.2, False, [-3, 3]],
+             'x1_std_l_HOST_LOGMASS_low':[1.0, 0.3, True, [0.3, 3]],
+             'x1_std_r_HOST_LOGMASS_low':[1.0, 0.3, True, [0.3, 3]],
+             'x1_mu_HOST_LOGMASS_high':[0.2, 0.2, False, [-3, 3]],
+             'x1_std_l_HOST_LOGMASS_high':[1.2, 0.3, True, [0.3, 3]],
+             'x1_std_r_HOST_LOGMASS_high':[1.2, 0.3, True, [0.3, 3]],
+             'RV_mu_HOST_LOGMASS_low':[2, 0.5, True, [0.8, 4]],
+             'RV_mu_HOST_LOGMASS_high':[2, 0.5, True, [0.8, 4]],
+             'RV_std_HOST_LOGMASS_low':[1.0, 0.5, True, [0.25,4]],
+             'RV_std_HOST_LOGMASS_high':[1.0, 0.5, True, [0.25,4]],
+             'EBV_Tau_SIM_ZCMB_low_HOST_LOGMASS_low':[0.11, 0.02, True, [0.05, 0.2]],
+             'EBV_Tau_SIM_ZCMB_low_HOST_LOGMASS_high':[0.13, 0.02, True, [0.05, 0.2]],
+             'EBV_Tau_SIM_ZCMB_high_HOST_LOGMASS_low':[0.11, 0.02, True, [0.05, 0.2]],
+             'EBV_Tau_SIM_ZCMB_high_HOST_LOGMASS_high':[0.13, 0.02, True, [0.05, 0.2]],
+             'beta_mu':[2, 0.5, False, [1,3]],
+             'beta_std':[.2, .07, True, [0, 1]],
+} 
