@@ -28,7 +28,6 @@ Usage:
 
     Optional flags:
     --SINGLE: Run single likelihood evaluation for testing
-    --GENPDF_ONLY: Generate GENPDF file without running MCMC
     --DOPLOT: Create plots from existing chains
     --DEBUG: Enable verbose output
 """
@@ -36,11 +35,7 @@ import callSALT2mu
 import numpy as np
 from pathlib import Path
 import sys
-import matplotlib
-matplotlib.use('Agg')
-import pylab as plt
 import os
-import corner
 from multiprocessing import Pool
 from multiprocessing import current_process
 from multiprocessing import cpu_count
@@ -48,7 +43,6 @@ import emcee
 import time, logging, argparse, yaml, itertools
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
-
 JOBNAME_SALT2mu = "SALT2mu.exe"   # public default code
 os.environ["OMP_NUM_THREADS"] = "1"
 ncbins = 6
@@ -74,7 +68,7 @@ class Config:
     - File paths: data_input, sim_input, simref_file, outdir, chains
     - Parameters: inp_params, params, paramshapesdict, splitdict, splitparam, parameter_initialization, splitarr
     - Command-line overrides: cmd_data, cmd_sim
-    - Flags: single, debug, noweight, doplot, genpdf_only
+    - Flags: single, debug, noweight
     """
     # File paths
     data_input: str
@@ -100,8 +94,6 @@ class Config:
     single: bool = False
     debug: bool = False
     noweight: bool = False
-    doplot: bool = False
-    genpdf_only: bool = False
 
     @classmethod
     def from_dict(cls, config_dict: dict, args: argparse.Namespace) -> 'Config':
@@ -137,9 +129,7 @@ class Config:
             cmd_sim=args.CMD_SIM,
             single=args.SINGLE,
             debug=args.DEBUG or args.SINGLE,  # SINGLE implies DEBUG
-            noweight=args.NOWEIGHT,
-            doplot=args.DOPLOT,
-            genpdf_only=args.GENPDF_ONLY
+            noweight=args.NOWEIGHT
         )
 
 #===========================================================================================================================================
@@ -331,10 +321,6 @@ def get_args():
                         type=str,
                         default=None,
                         help="Command-line override for SALT2mu simulation input file")
-
-    parser.add_argument("--GENPDF_ONLY",
-                        action='store_true',
-                        help="Generate GENPDF file and quit (does not run MCMC)")
 
     args = parser.parse_args()
     return args
@@ -786,139 +772,6 @@ def LL_Creator(inparr, simbeta, simsigint, returnall_2=False, RMS_weight=1):
     else:
         return LL_dict, datacount_dict, simcount_dict, poisson_dict
     #END LL_Creator
-    
-def pltting_func(samples, INP_PARAMS, ndim):
-    """
-    Create chain trace plots and corner plot from MCMC samples.
-
-    Generates two diagnostic plots:
-    1. Trace plot showing parameter evolution over MCMC steps
-    2. Corner plot showing parameter correlations and posteriors
-
-    Args:
-        samples: MCMC samples array of shape (nsteps, nwalkers, ndim)
-        INP_PARAMS: List of input parameter names
-        ndim: Number of dimensions (parameters)
-
-    Side effects:
-        - Saves chain trace plot to OUTDIR/figures/*-chains.pdf
-        - Saves corner plot to OUTDIR/figures/*-corner.pdf
-        - Prints upload messages for both plots
-    """
-    labels = pconv(INP_PARAMS, config.paramshapesdict, config.splitdict)
-    for k in PARAMETER_OVERRIDES.keys():
-        labels.remove(k)
-    plt.clf()
-    fig, axes = plt.subplots(ndim, figsize=(10, 2*ndim), sharex=True)
-    for it in range(ndim):
-        ax = axes[it]
-        ax.plot(samples[:, :, it], "k", alpha=0.3)
-        ax.set_xlim(0, len(samples))
-        #ax.set_ylabel(r'$'+str(labels[it])+'$')
-        ax.set_ylabel(it)
-        ax.yaxis.set_label_coords(-0.1, 0.5)
-
-    axes[-1].set_xlabel("step number");
-    plt.savefig(config.outdir+'figures/'+config.data_input.split('.')[0].split('/')[-1]+'-chains.pdf', bbox_inches='tight')
-    print('upload '+config.outdir+'figures/chains.pdf')
-    plt.close()
-
-    flat_samples = samples.reshape(-1, samples.shape[-1])
-
-    plt.clf()
-    fig = corner.corner(
-        flat_samples, labels=labels, smooth=True
-    );
-    plt.savefig(config.outdir+'figures/'+config.data_input.split('.')[0].split('/')[-1]+'-corner.pdf')
-    print('upload '+config.outdir+'figures/corner.pdf')                                                    
-    plt.close()                                
-    #END pltting_func
-
-def Criteria_Plotter(theta, genpdf_only=False):
-    """
-    Create diagnostic plots comparing data and simulation for a given parameter set.
-
-    Runs log_likelihood with given parameters and creates a 3-panel plot showing:
-    - Panel (a): Color histogram comparison
-    - Panel (b): Hubble residuals vs color (high/low mass)
-    - Panel (c): Hubble residual scatter vs color (high/low mass)
-
-    Each panel includes chi-squared values.
-
-    Args:
-        theta: Array of parameter values to evaluate
-        genpdf_only: If True, generate GENPDF file and quit without plotting (default: False)
-
-    Side effects:
-        - Creates test connection (ID=299)
-        - Saves plot to OUTDIR/figures/*overplot_observed_DATA_SIM_OVERVIEW.pdf
-        - If genpdf_only: renames output to GENPDF.DAT and returns early
-
-    Returns:
-        str: 'Done' if successful, None if plotting skipped
-    """
-    tc = init_connection(299,real=False,debug=True)[1]                                              
-    try:                                       
-        chisq, datacount_list, simcount_list, poisson_list = log_likelihood((theta),returnall=True,connection=tc, genpdf_only=genpdf_only)  
-    except TypeError:       
-        if genpdf_only:
-            #Read in and change the GENPDF filenames to be appropriate for SNANA-usage. The SUBPROCESS and SIM parameters are not the same by default.
-            print('If you did not mean to generate the GENPDF only, something has gone wrong. Otherwise this is working properly.')
-            os.rename('parallel/299_PYTHONCROSSTALK_OUT.DAT', 'GENPDF.DAT')     
-            return()
-        else:
-            print(f"LL was not returned after running log_likelihood, which is likely due to bad parameters. Will skip plotting.")  
-            return                                 
-    cbins = np.linspace(-0.2,0.25, ncbins)
-    chisq = -2*chisq
-    if config.debug: print('RESULT!', chisq, flush=True)                                                   
-    sys.stdout.flush()                         
-    plt.rcParams.update({"text.usetex": True,"font.size":12})                                       
-    fig, axs = plt.subplots(1, 3, figsize=(15,4))    
-    ##### Color Hist                          
-    ax = axs[0]                                
-    ax.errorbar(cbins, datacount_list[0], yerr =(poisson_list[0]), fmt='o', c='darkmagenta', label='Data')    
-    ax.plot(cbins, simcount_list[0], c='dimgray',label='Simulation')                                
-    ax.legend()                                
-    ax.set_xlabel(r'$c$')                      
-    ax.set_ylabel('Count')                     
-    thestring=r'$\chi^2_c =$ '+str(np.around(chisq[0],1))                                           
-    ax.text(-.2,50, thestring, )               
-    ax.text(-.2,450, 'a)')                     
-    ###### MURES hi and lo                     
-    ax = axs[1]                                
-    ax.errorbar(cbins, datacount_list[1], yerr =(poisson_list[1]), fmt='^', c='k', label='Data, High')   
-    ax.plot(cbins, simcount_list[1], c='tab:orange',label='Simulation, High', ls='--')         
-    ax.errorbar(cbins, datacount_list[2], yerr =(poisson_list[2]), fmt='s', c='tab:green', label='Data, Low')  
-    ax.plot(cbins, simcount_list[2], c='tab:blue',label='Simulation, Low')  
-    ax.legend(bbox_to_anchor=[1.7,1.2], ncol=2)
-    ax.set_xlabel(r'$c$')                      
-    ax.set_ylabel(r'$\mu - \mu_{\rm model}$')  
-    thestring=r'High $\chi^2_{\mu_{\rm res}} =$ '+str(np.around(chisq[1],1))                   
-    ax.text(-.2,.205, thestring, )             
-    thestring=r'Low $\chi^2_{\mu_{\rm res}} =$ '+str(np.around(chisq[2],1))                    
-    ax.text(-.2,.18, thestring, )              
-    ax.text(-.2, .275, 'b)')     
-    ####### RMS hi and lo                      
-    ax = axs[2]                                
-    ax.errorbar(cbins, datacount_list[3], yerr =(poisson_list[3]), fmt='^', c='k', label='REAL DATA HIGH')         
-    ax.plot(cbins, simcount_list[3], c='tab:orange',label='SIMULATION HI', ls='--')             
-    ax.errorbar(cbins, datacount_list[4], yerr =(poisson_list[4]), fmt='s', c='tab:green', label='REAL DATA LOW')  
-    ax.plot(cbins, simcount_list[4], c='tab:blue',label='SIMULATION LOW ')                       
-    ax.set_xlabel(r'$c$')                      
-    ax.set_ylabel(r'$\sigma_{\rm r}$')         
-    thestring=r'High $\chi^2_{\sigma_{\rm r}} =$ '+str(np.around(chisq[3],1))                  
-    ax.text(-.2,.42, thestring, )              
-    thestring=r'Low $\chi^2_{\sigma_{\rm r}} =$ '+str(np.around(chisq[4],1))                   
-    ax.text(-.2,.395, thestring, )             
-    ax.text(-.2, .48, 'c)')                    
-    fig.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=.25, hspace=None)      
-    plt.savefig(config.outdir+'figures/'+config.data_input.split('.')[0].split('/')[-1]+'overplot_observed_DATA_SIM_OVERVIEW.pdf',
-                pad_inches=0.01, bbox_inches='tight')
-    print('upload '+config.outdir+'figures/overplot_observed_DATA_SIM_OVERVIEW.pdf')                       
-    plt.close()                                                        
-    return 'Done'  
-    #END Criteria_Plotter
 
 def subprocess_to_snana(OUTDIR, snana_mapping):
     """
@@ -1159,7 +1012,7 @@ def normhisttodata(datacount,simcount):
 ################### SCIENCE FUNCTIONS ##################       
 #======================================================= 
 
-def log_likelihood(theta, connection=False, returnall=False, genpdf_only=False):
+def log_likelihood(theta, connection=False, returnall=False):
     """
     Calculate log-likelihood for proposed parameter values.
 
@@ -1173,7 +1026,6 @@ def log_likelihood(theta, connection=False, returnall=False, genpdf_only=False):
         theta: Array of parameter values (length = ndim)
         connection: SALT2mu connection object (if False, retrieves from global list)
         returnall: If True, return detailed likelihood components (default: False)
-        genpdf_only: If True, write GENPDF and exit without running SALT2mu
 
     Returns:
         float: Log-likelihood value
@@ -1206,10 +1058,6 @@ def log_likelihood(theta, connection=False, returnall=False, genpdf_only=False):
         for inp in config.inp_params: #TODO - need to generalise to 2d functions as well
             connection.write_generic_PDF(inp, config.splitdict, thetawriter(theta, inp), config.paramshapesdict[inp], DISTRIBUTION_PARAMETERS, PARAM_TO_SALT2MU, array_conv(inp, config.splitdict, config.splitarr))
             
-        if genpdf_only:
-            print('GENPDF File created. Quitting now. This is expected.')
-            return
-
         print('next',flush=True) 
           
         connection = connection_next(connection)# NOW RUN SALT2mu with these new distributions        
@@ -1459,10 +1307,6 @@ def MCMC(nwalkers, ndim):
 #=================================================================================================
 
 if __name__ == "__main__":
-#    try:
-#        setup_logging()
-#        logging.info("# ========== BEGIN DUST2DUST ===============")
-
     # Parse arguments and load configuration
     args = get_args()
     # Set module-level config (replaces 20+ individual globals)
@@ -1478,32 +1322,9 @@ if __name__ == "__main__":
             print(f'ERROR: Parameter count mismatch. Expected {ndim}, got {len(config.params)}')
             print('Quitting to avoid confusion.')
             sys.exit(1)
-        print(f'Running single likelihood evaluation with parameters: {config.params}')
-        Criteria_Plotter(config.params)
-        sys.exit(0)
-
-    elif config.genpdf_only:
-        print('Generating GENPDF file...')
-        if len(config.params) != ndim:
-            print(f'ERROR: Parameter count mismatch. Expected {ndim}, got {len(config.params)}')
-            print('Quitting to avoid confusion.')
-            sys.exit(1)
-        print(f'Input parameters: {config.params}')
-        Criteria_Plotter(config.params, genpdf_only=True)
+        tc = init_connection(299, real=False, debug=True)[1]
+        chisq, datacount_dict, simcount_dict, poisson_dict = log_likelihood(config.params, returnall=True, connection=tc)
         subprocess_to_snana(config.outdir, SUBPROCESS_TO_SNANA)
-        sys.exit(0)
-
-    elif config.doplot:
-        if not config.chains:
-            print('ERROR: No chains file specified. Use CHAINS: <path> in config file.')
-            print('Quitting gracefully.')
-            sys.exit(1)
-        print('DOPLOT mode enabled. Creating plots from existing chains...')
-        old_chains = np.load(config.chains)
-        past_results = old_chains.f.arr_0
-        Criteria_Plotter(config.params)
-        pltting_func(past_results, config.params, ndim)
-        print('Plotting complete.')
         sys.exit(0)
 
     # Run full MCMC
@@ -1516,7 +1337,5 @@ if __name__ == "__main__":
 
     connections = init_connections(nwalkers)
     MCMC(nwalkers, ndim)
-    #except Exception as e:
-    #    logging.exception(e)
-    #    raise e
+
 # end:
