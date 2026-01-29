@@ -519,9 +519,10 @@ def input_cleaner(
                ndim: number of dimensions (parameters)
     """
     plist = pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT)
+    nwalkers = len(plist) * walkfactor
     for element in parameter_overrides.keys():
         plist.remove(element)
-    pos = np.abs(0.1 * np.random.randn(len(plist) * walkfactor, len(plist)))
+    pos = np.abs(0.1 * np.random.randn(nwalkers, len(plist)))
     for entry in range(len(plist)):
         newpos_param = PARAMETER_INITIALIZATION[plist[entry]]
         pos[:, entry] = np.random.normal(newpos_param[0], newpos_param[1], len(pos[:, entry]))
@@ -533,7 +534,7 @@ def input_cleaner(
             pos[:, entry] = np.random.normal(newpos_param[0], newpos_param[1], len(pos[:, entry]))
             if newpos_param[2]:
                 pos[:, entry] = np.abs(pos[:, entry])
-    return pos, len(plist) * walkfactor, len(plist)
+    return pos, nwalkers, len(plist)
     # END input_cleaner
 
 
@@ -739,14 +740,12 @@ def LL_Creator(realdata, sim, inparr, returnall=False, RMS_weight=1):
                    simcount_dict: Simulation values for each observable
                    poisson_dict: Poisson errors for each observable
     """
+    # Always create detail dicts (minimal memory overhead)
+    # Only return them if returnall=True at the end
     LL_dict = defaultdict(float)
-
-    if returnall:
-        # Always create detail dicts (minimal memory overhead)
-        # Only return them if returnall=True at the end
-        datacount_dict = defaultdict(float)
-        simcount_dict = defaultdict(float)
-        poisson_dict = defaultdict(float)
+    datacount_dict = defaultdict(float)
+    simcount_dict = defaultdict(float)
+    poisson_dict = defaultdict(float)
 
     # ========== Parameter likelihood terms ==========
     # Beta (color-luminosity relation)
@@ -770,13 +769,14 @@ def LL_Creator(realdata, sim, inparr, returnall=False, RMS_weight=1):
 
     # Color histogram
     data_color, sim_color = inparr["color_hist"]
-    datacount_color, simcount_color, poisson_color, ww = normhisttodata(data_color, sim_color)
-    LL_dict["color_hist"] = -0.5 * np.sum(
-        (datacount_color - simcount_color) ** 2 / poisson_color**2
-    )
-    datacount_dict["color_hist"] = datacount_color
-    simcount_dict["color_hist"] = simcount_color
-    poisson_dict["color_hist"] = poisson_color
+    if len(data_color) > 0 and len(sim_color) > 0:
+        datacount_color, simcount_color, poisson_color, ww = normhisttodata(data_color, sim_color)
+        LL_dict["color_hist"] = -0.5 * np.sum(
+            (datacount_color - simcount_color) ** 2 / poisson_color**2
+        )
+        datacount_dict["color_hist"] = datacount_color
+        simcount_dict["color_hist"] = simcount_color
+        poisson_dict["color_hist"] = poisson_color
 
     # X1 (stretch) histogram
     data_x1, sim_x1 = inparr["x1_hist"]
@@ -786,12 +786,6 @@ def LL_Creator(realdata, sim, inparr, returnall=False, RMS_weight=1):
         datacount_dict["x1_hist"] = datacount_x1
         simcount_dict["x1_hist"] = simcount_x1
         poisson_dict["x1_hist"] = poisson_x1
-    else:
-        # Skip if x1 histogram not available
-        LL_dict["x1_hist"] = 0.0
-        datacount_dict["x1_hist"] = np.array([])
-        simcount_dict["x1_hist"] = np.array([])
-        poisson_dict["x1_hist"] = np.array([])
 
     # High-mass MURES
     data_mures_high, sim_mures_high = inparr["mures_high"]
@@ -1532,15 +1526,24 @@ if __name__ == "__main__":
     # Set module-level config (replaces 20+ individual globals)
     config = load_config(args.CONFIG, args)
 
-    nwalkers = 1  # default value
-
     DEBUG = config.debug or config.test_run
     # 1. Initialize real data first
     realdata = init_dust2dust(debug=DEBUG)
 
-    # 2. Initialize connections (before Pool is created in MCMC)
-    connections = init_connections(nwalkers, DEBUG=DEBUG)
+    if DEBUG:
+        nwalkers = 1
+    else:
+        pos, nwalkers, ndim = input_cleaner(
+            config.inp_params,
+            config.paramshapesdict,
+            config.splitdict,
+            config.parameter_initialization,
+            PARAMETER_OVERRIDES,
+            walkfactor=3,
+        )
 
+    connections = init_connections(nwalkers, DEBUG=DEBUG)
+    # 2. Initialize connections (before Pool is created in MCMC)
     if config.test_run:
         # For test run, initialize worker state directly and call log_probability
         _init_worker(realdata, connections, debug=DEBUG)
@@ -1549,14 +1552,6 @@ if __name__ == "__main__":
 
     # 3. Run MCMC with convergence monitoring
     # Initialize MCMC
-    pos, nwalkers, ndim = input_cleaner(
-        config.inp_params,
-        config.paramshapesdict,
-        config.splitdict,
-        config.parameter_initialization,
-        PARAMETER_OVERRIDES,
-        walkfactor=3,
-    )
     print("\n" + "=" * 60)
     print("Starting MCMC sampling...")
     print(f"  Walkers: {nwalkers}")

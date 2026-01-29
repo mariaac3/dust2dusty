@@ -152,7 +152,13 @@ class SALT2mu:
         """
         print("writing next iter to stdin")
         self.write_iterbegin()
-        results = subprocess.run([self.command], shell=True)
+
+        stdout = None
+        stdin = None
+        if self.debug:
+            stdout = subprocess.DEVNULL
+            stdin = subprocess.DEVNULL
+        results = subprocess.run([self.command], shell=True, stdout=stdout, stdin=stdin)
         self.data = self.getData()
         self.write_iterend()
         # END next
