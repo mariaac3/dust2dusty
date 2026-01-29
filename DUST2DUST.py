@@ -148,7 +148,7 @@ class Config:
 # ===========================================================================================================================================
 
 
-def create_output_directories(outdir):
+def create_output_directories(outdir, debug=False):
     """
     Create output directory structure for DUST2DUST results.
 
@@ -160,6 +160,7 @@ def create_output_directories(outdir):
 
     Args:
         outdir: Path to main output directory (can be relative or absolute)
+        debug: If True, print verbose output (default: False)
 
     Returns:
         str: Absolute path to output directory with trailing slash
@@ -180,14 +181,16 @@ def create_output_directories(outdir):
 
     # Create main directory if it doesn't exist
     if not os.path.exists(outdir):
-        print(f"Creating output directory: {outdir}")
+        if debug:
+            print(f"Creating output directory: {outdir}")
         try:
             os.makedirs(outdir)
         except OSError as e:
             print(f"ERROR: Could not create directory {outdir}: {e}")
             sys.exit(1)
     else:
-        print(f"Using existing directory: {outdir}")
+        if debug:
+            print(f"Using existing directory: {outdir}")
 
     # Create required subdirectories
     required_subdirs = ["chains", "figures", "parallel", "logs"]
@@ -196,7 +199,8 @@ def create_output_directories(outdir):
         if not os.path.exists(subdir_path):
             try:
                 os.makedirs(subdir_path)
-                print(f"  Created subdirectory: {subdir}/")
+                if debug:
+                    print(f"  Created subdirectory: {subdir}/")
             except OSError as e:
                 print(f"ERROR: Could not create subdirectory {subdir_path}: {e}")
                 sys.exit(1)
@@ -281,20 +285,22 @@ def load_config(config_path: str, args: argparse.Namespace) -> Config:
         print(f"ERROR: Missing required configuration keys: {missing_keys}")
         sys.exit(1)
 
-    print(f"Loaded configuration from: {config_path}")
-
     # Create Config object from dictionary and args
     config = Config.from_dict(config_dict, args)
 
+    if config.debug:
+        print(f"Loaded configuration from: {config_path}")
+
     # Set up output directory structure
-    config.outdir = create_output_directories(config.outdir)
+    config.outdir = create_output_directories(config.outdir, debug=config.debug)
 
     # Print configuration summary
-    print("Configuration finalized successfully.")
-    print(f"  Data: {config.data_input}")
-    print(f"  Simulation: {config.sim_input}")
-    print(f"  Parameters to fit: {', '.join(config.inp_params)}")
-    print(f"  Output directory: {config.outdir}")
+    if config.debug:
+        print("Configuration finalized successfully.")
+        print(f"  Data: {config.data_input}")
+        print(f"  Simulation: {config.sim_input}")
+        print(f"  Parameters to fit: {', '.join(config.inp_params)}")
+        print(f"  Output directory: {config.outdir}")
 
     return config
     # END load_config
@@ -749,13 +755,14 @@ def LL_Creator(realdata, sim, inparr, returnall=False, RMS_weight=1):
 
     # ========== Parameter likelihood terms ==========
     # Beta (color-luminosity relation)
-    print(
-        "real beta, sim beta, real beta error",
-        realdata.beta,
-        sim.beta,
-        realdata.betaerr,
-        flush=True,
-    )
+    if config.debug:
+        print(
+            "real beta, sim beta, real beta error",
+            realdata.beta,
+            sim.beta,
+            realdata.betaerr,
+            flush=True,
+        )
 
     LL_dict["beta"] = -0.5 * ((realdata.beta - sim.beta) / realdata.betaerr) ** 2
 
@@ -1116,10 +1123,12 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
         realdata: SALT2mu object containing real data results
         DISTRIBUTION_PARAMETERS, PARAM_TO_SALT2MU: Parameter mapping dictionaries
     """
-    print(f"Current PID is {os.getpid()}")
+    if config.debug:
+        print(f"Current PID is {os.getpid()}")
 
     # Generate PDF for given theta parameters
-    print("writing PDF", flush=True)
+    if config.debug:
+        print("writing PDF", flush=True)
     for inp in config.inp_params:  # TODO - need to generalise to 2d functions as well
         connection.write_generic_PDF(
             inp,
@@ -1135,11 +1144,12 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
     connection.run_iter()  # open SOMETHING.DAT for that iteration
 
     if connection.maxprob > 1.001:
-        print(
-            connection.maxprob,
-            "MAXPROB parameter greater than 1! Coming up against the bounding function! Returning -np.inf to account, caught right after connection",
-            flush=True,
-        )
+        if config.debug:
+            print(
+                connection.maxprob,
+                "MAXPROB parameter greater than 1! Coming up against the bounding function! Returning -np.inf to account, caught right after connection",
+                flush=True,
+            )
         return -np.inf
 
     # try:
@@ -1165,7 +1175,8 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
     #         return -np.inf
 
     # ANALYSIS returns c, highres, lowres, rms
-    print("Right before calculation", flush=True)
+    if config.debug:
+        print("Right before calculation", flush=True)
     bindf = connection.bindf.dropna()  # THIS IS THE PANDAS DATAFRAME OF THE OUTPUT FROM SALT2mu
     sim_vals = dffixer(bindf, "ANALYSIS", False)
 
@@ -1193,7 +1204,8 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
     #         connections[newcon] = tc
     #         return log_likelihood(theta, connection=tc)
 
-    print("Right before calling LL Creator", flush=True)
+    if config.debug:
+        print("Right before calling LL Creator", flush=True)
 
     out_result = LL_Creator(realdata, connection, inparr, returnall=returnall)
     # print(
@@ -1320,10 +1332,12 @@ def init_connections(nwalkers: int, DEBUG=False):
         print("we are in debug mode now")
         nwalkers = 1
     for i in range(nwalkers):
-        print(f"generated {i} walker.", flush=True)
+        if DEBUG:
+            print(f"generated {i} walker.", flush=True)
         _, tc = init_connection(i, real=False, debug=DEBUG)
         connections.append(tc)
-    print("Done initialising walkers")
+    if DEBUG:
+        print("Done initialising walkers")
     return connections
     # END init_connections
 
@@ -1360,7 +1374,8 @@ def log_probability(theta):
     """
     lp = log_prior(theta)
     if not np.isfinite(lp):
-        print("WARNING! We returned -inf from small parameters!", flush=True)
+        if _worker_debug:
+            print("WARNING! We returned -inf from small parameters!", flush=True)
         return -np.inf
     return lp + log_likelihood(_worker_realdata, _worker_connection, theta)
 
@@ -1410,7 +1425,8 @@ def MCMC(
     )
     backend = emcee.backends.HDFBackend(chain_filename)
     backend.reset(nwalkers, ndim)
-    print(f"Chain storage initialized: {chain_filename}")
+    if debug:
+        print(f"Chain storage initialized: {chain_filename}")
 
     # Track autocorrelation time history
     autocorr_history = np.empty(max_iterations // convergence_check_interval)
@@ -1420,11 +1436,12 @@ def MCMC(
     with Pool(nwalkers, initializer=_init_worker, initargs=(realdata, connections, debug)) as pool:
         sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, backend=backend)
 
-        print(f"Starting MCMC with {cpu_count()} CPUs, {nwalkers} walkers, {ndim} dimensions")
-        print(
-            f"Max iterations: {max_iterations}, convergence check every {convergence_check_interval} steps"
-        )
-        print("=" * 60, flush=True)
+        if debug:
+            print(f"Starting MCMC with {cpu_count()} CPUs, {nwalkers} walkers, {ndim} dimensions")
+            print(
+                f"Max iterations: {max_iterations}, convergence check every {convergence_check_interval} steps"
+            )
+            print("=" * 60, flush=True)
 
         # Run with convergence monitoring
         for sample in sampler.sample(pos, iterations=max_iterations, progress=True):
@@ -1445,30 +1462,33 @@ def MCMC(
                 converged = np.all(tau * 100 < sampler.iteration)
                 converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
 
-                print(f"\nIteration {sampler.iteration}:")
-                print(f"  Mean tau: {np.mean(tau):.1f}")
-                print(f"  Min tau:  {np.min(tau):.1f}")
-                print(f"  Max tau:  {np.max(tau):.1f}")
-                print(f"  Chain/tau ratio: {sampler.iteration / np.max(tau):.1f} (need > 100)")
-                if np.isfinite(old_tau).all():
-                    tau_change = np.max(np.abs(old_tau - tau) / tau) * 100
-                    print(f"  Tau change: {tau_change:.2f}% (need < 1%)", flush=True)
+                if debug:
+                    print(f"\nIteration {sampler.iteration}:")
+                    print(f"  Mean tau: {np.mean(tau):.1f}")
+                    print(f"  Min tau:  {np.min(tau):.1f}")
+                    print(f"  Max tau:  {np.max(tau):.1f}")
+                    print(f"  Chain/tau ratio: {sampler.iteration / np.max(tau):.1f} (need > 100)")
+                    if np.isfinite(old_tau).all():
+                        tau_change = np.max(np.abs(old_tau - tau) / tau) * 100
+                        print(f"  Tau change: {tau_change:.2f}% (need < 1%)", flush=True)
 
                 if converged:
-                    print("\n" + "=" * 60)
-                    print("CONVERGENCE ACHIEVED!")
-                    print(f"  Final iteration: {sampler.iteration}")
-                    print(f"  Final mean tau: {np.mean(tau):.1f}")
-                    print("=" * 60)
+                    if debug:
+                        print("\n" + "=" * 60)
+                        print("CONVERGENCE ACHIEVED!")
+                        print(f"  Final iteration: {sampler.iteration}")
+                        print(f"  Final mean tau: {np.mean(tau):.1f}")
+                        print("=" * 60)
                     break
 
                 old_tau = tau
 
             except emcee.autocorr.AutocorrError:
                 # Chain too short for reliable tau estimate
-                print(
-                    f"\nIteration {sampler.iteration}: Chain too short for tau estimate", flush=True
-                )
+                if debug:
+                    print(
+                        f"\nIteration {sampler.iteration}: Chain too short for tau estimate", flush=True
+                    )
 
         # Save autocorrelation history
         autocorr_filename = (
@@ -1478,24 +1498,28 @@ def MCMC(
             + "-autocorr.npz"
         )
         np.savez(autocorr_filename, autocorr=autocorr_history[:autocorr_index])
-        print(f"Autocorrelation history saved to: {autocorr_filename}")
+        if debug:
+            print(f"Autocorrelation history saved to: {autocorr_filename}")
 
         # Report final statistics
-        print("\n" + "=" * 60)
-        print("MCMC COMPLETE")
-        print("=" * 60)
+        if debug:
+            print("\n" + "=" * 60)
+            print("MCMC COMPLETE")
+            print("=" * 60)
         try:
             tau = sampler.get_autocorr_time()
             burnin = int(2 * np.max(tau))
             thin = int(0.5 * np.min(tau))
-            print(f"Final autocorrelation time: {tau}")
-            print(f"Recommended burn-in: {burnin} steps")
-            print(f"Recommended thinning: {thin} steps")
-            print(f"Effective samples: ~{sampler.iteration * nwalkers / np.mean(tau):.0f}")
+            if debug:
+                print(f"Final autocorrelation time: {tau}")
+                print(f"Recommended burn-in: {burnin} steps")
+                print(f"Recommended thinning: {thin} steps")
+                print(f"Effective samples: ~{sampler.iteration * nwalkers / np.mean(tau):.0f}")
 
             # Get flattened samples with burn-in and thinning applied
             flat_samples = sampler.get_chain(discard=burnin, thin=thin, flat=True)
-            print(f"Shape of thinned samples: {flat_samples.shape}")
+            if debug:
+                print(f"Shape of thinned samples: {flat_samples.shape}")
 
             # Save thinned samples for convenience
             thinned_filename = (
@@ -1505,7 +1529,8 @@ def MCMC(
                 + "-samples_thinned.npz"
             )
             np.savez(thinned_filename, samples=flat_samples, tau=tau, burnin=burnin, thin=thin)
-            print(f"Thinned samples saved to: {thinned_filename}")
+            if debug:
+                print(f"Thinned samples saved to: {thinned_filename}")
 
         except emcee.autocorr.AutocorrError:
             print("WARNING: Could not compute final autocorrelation time.")
@@ -1552,13 +1577,15 @@ if __name__ == "__main__":
 
     # 3. Run MCMC with convergence monitoring
     # Initialize MCMC
-    print("\n" + "=" * 60)
-    print("Starting MCMC sampling...")
-    print(f"  Walkers: {nwalkers}")
-    print(f"  Dimensions: {ndim}")
-    print(f"  Parameters: {', '.join(config.inp_params)}")
-    print("=" * 60 + "\n")
+    if DEBUG:
+        print("\n" + "=" * 60)
+        print("Starting MCMC sampling...")
+        print(f"  Walkers: {nwalkers}")
+        print(f"  Dimensions: {ndim}")
+        print(f"  Parameters: {', '.join(config.inp_params)}")
+        print("=" * 60 + "\n")
     sampler = MCMC(pos, nwalkers, ndim, realdata, connections, debug=DEBUG)
 
-    print("DUST2DUST complete.")
+    if DEBUG:
+        print("DUST2DUST complete.")
 # end:

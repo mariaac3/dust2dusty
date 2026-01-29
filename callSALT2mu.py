@@ -150,7 +150,8 @@ class SALT2mu:
         Side effects:
             - Writes self.iter to subprocess stdin
         """
-        print("writing next iter to stdin")
+        if self.debug:
+            print("writing next iter to stdin")
         self.write_iterbegin()
 
         stdout = None
