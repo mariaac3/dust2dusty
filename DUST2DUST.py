@@ -138,7 +138,7 @@ class Config:
             cmd_data=args.CMD_DATA,
             cmd_sim=args.CMD_SIM,
             test_run=args.TEST_RUN,
-            debug=args.DEBUG or args.SINGLE,  # SINGLE implies DEBUG
+            debug=args.DEBUG or args.TEST_RUN,  # SINGLE implies DEBUG
             noweight=args.NOWEIGHT,
         )
 
