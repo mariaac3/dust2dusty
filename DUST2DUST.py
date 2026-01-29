@@ -1185,10 +1185,14 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
         )
 
     print("next", flush=True)
-
+    # Check if process has terminated
+    if connection.process.poll() is None:
+        print("Process is still running")
+    else:
+        print(f"Process has terminated with return code: {connection.process.poll()}")
     # NOW RUN SALT2mu with these new distributions
     connection.write_iterend()
-        
+
     print("wrote end")
     connection.next()
     print("submitted next iter")
