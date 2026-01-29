@@ -1387,7 +1387,7 @@ def init_connections(nwalkers: int, DEBUG=False):
     # END init_connections
 
 
-def make_log_probability(realdata, connections, config):
+def make_log_probability(realdata, connections, debug=False):
     """
     Factory function that creates log_probability with connections bound.
 
@@ -1413,7 +1413,10 @@ def make_log_probability(realdata, connections, config):
         if not np.isfinite(lp):
             print("WARNING! We returned -inf from small parameters!", flush=True)
             return -np.inf
-        worker_id = current_process()._identity[0] - 1
+        if debug:
+            worker_id = 0
+        else:
+            worker_id = current_process()._identity[0] - 1
         connection = connections[worker_id]
         return lp + log_likelihood(realdata, connection, theta)
 
@@ -1572,14 +1575,15 @@ if __name__ == "__main__":
 
     nwalkers = 1  # default value
 
+    DEBUG = config.debug or config.test_run
     # 1. Initialize real data first
-    realdata = init_dust2dust(debug=config.debug or config.test_run)
+    realdata = init_dust2dust(debug=DEBUG)
 
     # 2. Initialize connections (before Pool is created in MCMC)
-    connections = init_connections(nwalkers, DEBUG=config.test_run)
+    connections = init_connections(nwalkers, DEBUG=DEBUG)
 
     # 3. Create the log_probability closure with connections bound
-    log_prob_fn = make_log_probability(realdata, connections, config)
+    log_prob_fn = make_log_probability(realdata, connections, config, debug=DEBUG)
 
     if config.test_run:
         # if len(config.params) != ndim:
