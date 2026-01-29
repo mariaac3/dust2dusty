@@ -137,7 +137,7 @@ class Config:
             # Command-line arguments
             cmd_data=args.CMD_DATA,
             cmd_sim=args.CMD_SIM,
-            single=args.SINGLE,
+            test_run=args.TEST_RUN,
             debug=args.DEBUG or args.SINGLE,  # SINGLE implies DEBUG
             noweight=args.NOWEIGHT,
         )
@@ -319,7 +319,7 @@ def get_args():
     )
 
     parser.add_argument(
-        "--SINGLE",
+        "--TEST_RUN",
         action="store_true",
         help="Run single likelihood evaluation for testing (does not launch MCMC)",
     )
@@ -1570,40 +1570,36 @@ if __name__ == "__main__":
     # Set module-level config (replaces 20+ individual globals)
     config = load_config(args.CONFIG, args)
 
+    nwalkers = 1  # default value
+
+    # 1. Initialize real data first
+    realdata = init_dust2dust()
+
+    # 2. Initialize connections (before Pool is created in MCMC)
+    connections = init_connections(nwalkers, DEBUG=config.test_run)
+
+    # 3. Create the log_probability closure with connections bound
+    log_prob_fn = make_log_probability(realdata, connections, config)
+
+    if config.test_run:
+        # if len(config.params) != ndim:
+        #     print(f"ERROR: Parameter count mismatch. Expected {ndim}, got {len(config.params)}")
+        #     print("Quitting to avoid confusion.")
+        #     sys.exit(1)
+        print(log_prob_fn(config.params))
+        sys.exit(0)
+
+    # 4. Run MCMC with convergence monitoring
     # Initialize MCMC
     pos, nwalkers, ndim = input_cleaner(
         config.inp_params, config.parameter_initialization, PARAMETER_OVERRIDES, walkfactor=3
     )
-
-    # # Handle different run modes
-    # if config.single:
-    #     if len(config.params) != ndim:
-    #         print(f"ERROR: Parameter count mismatch. Expected {ndim}, got {len(config.params)}")
-    #         print("Quitting to avoid confusion.")
-    #         sys.exit(1)
-    #     tc = init_connection(299, real=False, debug=True)[1]
-    #     chisq, datacount_dict, simcount_dict, poisson_dict = log_likelihood(config.params, returnall=True, connection=tc)
-    #     subprocess_to_snana(config.outdir, SUBPROCESS_TO_SNANA)
-    #     sys.exit(0)
-
-    # Run full MCMC
     print("\n" + "=" * 60)
     print("Starting MCMC sampling...")
     print(f"  Walkers: {nwalkers}")
     print(f"  Dimensions: {ndim}")
     print(f"  Parameters: {', '.join(config.inp_params)}")
     print("=" * 60 + "\n")
-
-    # 1. Initialize real data first
-    realdata = init_dust2dust()
-
-    # 2. Initialize connections (before Pool is created in MCMC)
-    connections = init_connections(nwalkers)
-
-    # 3. Create the log_probability closure with connections bound
-    log_prob_fn = make_log_probability(realdata, connections, config)
-
-    # 4. Run MCMC with convergence monitoring
     sampler = MCMC(pos, nwalkers, ndim, log_prob_fn)
 
     print("DUST2DUST complete.")
