@@ -137,8 +137,8 @@ class Config:
             # Command-line arguments
             cmd_data=args.CMD_DATA,
             cmd_sim=args.CMD_SIM,
-            test_run=args.TEST_RUN,
-            debug=args.DEBUG or args.TEST_RUN,  # SINGLE implies DEBUG
+            test_run=args.test_run,
+            debug=args.DEBUG or args.test_run,  # SINGLE implies DEBUG
             noweight=args.NOWEIGHT,
         )
 
@@ -319,7 +319,7 @@ def get_args():
     )
 
     parser.add_argument(
-        "--TEST_RUN",
+        "--test_run",
         action="store_true",
         help="Run single likelihood evaluation for testing (does not launch MCMC)",
     )
