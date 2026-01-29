@@ -32,29 +32,38 @@ Usage:
     --DEBUG: Enable verbose output
 """
 
+import os
 import sys
 from collections import defaultdict
 from pathlib import Path
 
-import matplotlib
-import numpy as np
 
-import callSALT2mu
+def set_numpy_threads(n_threads=4):
+    """Set number of threads for numpy operations"""
+    os.environ["OMP_NUM_THREADS"] = str(n_threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(n_threads)
+    os.environ["MKL_NUM_THREADS"] = str(n_threads)
+    os.environ["VECLIB_MAXIMUM_THREADS"] = str(n_threads)
+    os.environ["NUMEXPR_NUM_THREADS"] = str(n_threads)
 
-matplotlib.use("Agg")
+
+# Call BEFORE importing numpy
+set_numpy_threads(4)
+
 import argparse
 import itertools
 import logging
-import os
 from dataclasses import dataclass, field
 from multiprocessing import Pool, cpu_count, current_process
 from typing import Any, Dict, List, Optional
 
 import emcee
+import numpy as np
 import yaml
 
+import callSALT2mu
+
 JOBNAME_SALT2mu = "SALT2mu.exe"  # public default code
-os.environ["OMP_NUM_THREADS"] = "1"
 ncbins = 6
 
 # Module-level configuration object
@@ -1487,7 +1496,8 @@ def MCMC(
                 # Chain too short for reliable tau estimate
                 if debug:
                     print(
-                        f"\nIteration {sampler.iteration}: Chain too short for tau estimate", flush=True
+                        f"\nIteration {sampler.iteration}: Chain too short for tau estimate",
+                        flush=True,
                     )
 
         # Save autocorrelation history

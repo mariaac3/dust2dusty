@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 
-def setup_custom_logger(name, screen=False):
+def setup_custom_logger(name, screen=False, debug=False):
     """
     Create custom logger with file and optional screen output.
 
@@ -56,10 +56,13 @@ def setup_custom_logger(name, screen=False):
     screen_handler = logging.StreamHandler(stream=sys.stdout)
     screen_handler.setFormatter(formatter)
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
     logger.addHandler(handler)
     if screen:
         logger.addHandler(screen_handler)
+    logger.setLevel(logging.DEBUG)
+    if not debug:
+        logger.addHandler(logging.NullHandler())
+
     return logger
     # END setup_custom_logger
 
@@ -107,7 +110,10 @@ class SALT2mu:
             - If realdata=False: Launches SALT2mu.exe subprocess
         """
         # print(command%(mapsout,SALT2muout,log))
-        self.logger = setup_custom_logger("walker_" + os.path.basename(mapsout).split("_")[0])
+        # I
+        self.logger = setup_custom_logger(
+            "walker_" + os.path.basename(mapsout).split("_")[0], debug=debug
+        )
         self.iter = 0
         self.debug = debug  # Boolean. Default False.
         self.ready = "Enter expected ITERATION number"
@@ -156,7 +162,7 @@ class SALT2mu:
 
         stdout = None
         stdin = None
-        if self.debug:
+        if not self.debug:
             stdout = subprocess.DEVNULL
             stdin = subprocess.DEVNULL
         results = subprocess.run([self.command], shell=True, stdout=stdout, stdin=stdin)
