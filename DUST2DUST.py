@@ -491,7 +491,7 @@ def thetawriter(theta, key, names=False):
         ]  # Returns theta in the range of first to last index for relevant parameter. For example, inp_param = ['c', 'RV'], thetawriter(theta, 'c') would give theta[0:2] which is ['c_m', 'c_std']
 
 
-def input_cleaner(INP_PARAMS, PARAMETER_INITIALIZATION, parameter_overrides, walkfactor=2):
+def input_cleaner(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT,PARAMETER_INITIALIZATION, parameter_overrides, walkfactor=2):
     """
     Initialize MCMC walker starting positions with appropriate constraints.
 
@@ -1601,7 +1601,8 @@ if __name__ == "__main__":
     # 4. Run MCMC with convergence monitoring
     # Initialize MCMC
     pos, nwalkers, ndim = input_cleaner(
-        config.inp_params, config.parameter_initialization, PARAMETER_OVERRIDES, walkfactor=3
+        config.inp_params, config.paramshapesdict, splitdict, 
+        config.parameter_initialization, PARAMETER_OVERRIDES, walkfactor=3
     )
     print("\n" + "=" * 60)
     print("Starting MCMC sampling...")
