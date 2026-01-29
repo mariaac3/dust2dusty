@@ -989,7 +989,7 @@ def init_connection(index, real=True, debug=False):
     directory = "parallel"
     if config.debug:
         OPTMASK = 1
-    elif config.single:
+    elif config.test_run:
         OPTMASK = 1
 
     realdataout = f"{config.outdir}{directory}/{index}_SUBPROCESS_REALDATA_OUT.DAT"
@@ -1319,7 +1319,7 @@ def log_prior(theta):
     # END log_prior
 
 
-def init_dust2dust():
+def init_dust2dust(debug=False):
     """
     Initialize DUST2DUST by running SALT2mu on real data.
 
@@ -1345,10 +1345,10 @@ def init_dust2dust():
     """
 
     index = 0
-    if DEBUG or SINGLE or DOPLOT:
+    if debug:
         index = 299
 
-    realdata, _ = init_connection(index, real=True, debug=DEBUG)
+    realdata, _ = init_connection(index, real=True, debug=debug)
 
     return realdata
     # END init_dust2dust
@@ -1573,7 +1573,7 @@ if __name__ == "__main__":
     nwalkers = 1  # default value
 
     # 1. Initialize real data first
-    realdata = init_dust2dust()
+    realdata = init_dust2dust(debug=config.debug or config.test_run)
 
     # 2. Initialize connections (before Pool is created in MCMC)
     connections = init_connections(nwalkers, DEBUG=config.test_run)
