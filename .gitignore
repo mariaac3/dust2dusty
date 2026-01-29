@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+
+# MCMC output files
+chains/
+*.h5
+*.npz
+
+# SALT2mu subprocess files
+parallel/*.DAT
+parallel/*.STDOUT
+parallel/*.log
+
+# Output figures (keep directory structure)
+figures/*.pdf
+figures/*.png
+figures/*.jpg
+
+# Log files
+*.log
+*.out
+*.err
+slurm-*.out
+
+# SNANA output
+*.M0DIF
+*.FITRES
+OUT_*.M0DIF
+GENPDF.DAT
+
+# Temporary files
+*.tmp
+*.temp
+tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
