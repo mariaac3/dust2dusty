@@ -103,7 +103,7 @@ class Config:
     cmd_sim: Optional[str] = None
 
     # Runtime flags (set by args, not config file)
-    single: bool = False
+    test_run: bool = False
     debug: bool = False
     noweight: bool = False
 
