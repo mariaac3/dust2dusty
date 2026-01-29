@@ -39,7 +39,6 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
-from yaml.tokens import FlowSequenceStartToken
 
 import callSALT2mu
 
@@ -758,7 +757,11 @@ def LL_Creator(realdata, sim, inparr, returnall=False, RMS_weight=1):
     # ========== Parameter likelihood terms ==========
     # Beta (color-luminosity relation)
     print(
-        "real beta, sim beta, real beta error", realdata.beta, sim.beta, realdata.betaerr, flush=True
+        "real beta, sim beta, real beta error",
+        realdata.beta,
+        sim.beta,
+        realdata.betaerr,
+        flush=True,
     )
 
     LL_dict["beta"] = -0.5 * ((realdata.beta - sim.beta) / realdata.betaerr) ** 2
@@ -969,7 +972,6 @@ def Criteria_Plotter(theta, genpdf_only=False):
     chisq = -2 * chisq
     if config.debug:
         print("RESULT!", chisq, flush=True)
-    sys.stdout.flush()
     plt.rcParams.update({"text.usetex": True, "font.size": 12})
     fig, axs = plt.subplots(1, 3, figsize=(15, 4))
     ##### Color Hist
@@ -1334,7 +1336,7 @@ def normhisttodata(datacount, simcount):
 # =======================================================
 
 
-def log_likelihood(realdata, connections, theta, returnall : bool = False):
+def log_likelihood(realdata, connection, theta, returnall: bool = False):
     """
     Calculate log-likelihood for proposed parameter values.
 
@@ -1436,10 +1438,10 @@ def log_likelihood(realdata, connections, theta, returnall : bool = False):
 
     # ANALYSIS returns c, highres, lowres, rms
     print("Right before calculation", flush=True)
-    bindf = connection.bindf.dropna() # THIS IS THE PANDAS DATAFRAME OF THE OUTPUT FROM SALT2mu
+    bindf = connection.bindf.dropna()  # THIS IS THE PANDAS DATAFRAME OF THE OUTPUT FROM SALT2mu
     sim_vals = dffixer(bindf, "ANALYSIS", False)
 
-    realbindf = realdata.bindf .dropna() # same for the real data (was a global variable)
+    realbindf = realdata.bindf.dropna()  # same for the real data (was a global variable)
     real_vals = dffixer(realbindf, "ANALYSIS", True)
 
     # Build dictionary pairing data and simulation values
@@ -1478,7 +1480,7 @@ def log_likelihood(realdata, connections, theta, returnall : bool = False):
     # END log_likelihood
 
 
-def log_prior(theta, debug=False):
+def log_prior(theta):
     """
     Calculate log-prior probability for parameter values.
 
@@ -1527,36 +1529,6 @@ def log_prior(theta, debug=False):
     else:
         return 0
     # END log_prior
-
-
-def log_probability(theta):
-    """
-    Calculate log-probability (posterior) for MCMC sampling.
-
-    Combines log-prior and log-likelihood following Bayes' theorem:
-    log P(theta|data) = log P(theta) + log P(data|theta)
-
-    This is the main function passed to emcee.EnsembleSampler. It first checks
-    the prior (parameter bounds), and only evaluates the expensive likelihood
-    if parameters are within bounds.
-
-    Args:
-        theta: Array of parameter values (length = ndim)
-
-    Returns:
-        float: Log-posterior probability (log_prior + log_likelihood)
-               Returns -np.inf if prior returns -inf (parameter out of bounds)
-               or if likelihood evaluation fails
-    """
-    lp = log_prior(theta)
-    if not np.isfinite(lp):
-        print("WARNING! We returned -inf from small parameters!")
-        sys.stdout.flush()
-        return -np.inf
-    else:
-        sys.stdout.flush()
-        return lp + log_likelihood(connections[(current_process()._identity[0] - 1)], theta)
-    # END log_probability
 
 
 def init_dust2dust():
@@ -1619,68 +1591,184 @@ def init_connections(nwalkers: int, DEBUG=False):
         print("we are in debug mode now")
         nwalkers = 1
     for i in range(nwalkers):
-        print("generated", i, "walker.")
-        sys.stdout.flush()
-        _, tc = init_connection(i, real=False, debug=DEBUG)  # set this back to DEBUG=DEBUG
+        print(f"generated {i} walker.", flush=True)
+        _, tc = init_connection(i, real=False, debug=DEBUG)
         connections.append(tc)
     print("Done initialising walkers")
     return connections
     # END init_connections
 
 
-def MCMC(nwalkers, ndim):
+def make_log_probability(realdata, connections, config):
     """
-    Run MCMC sampling using emcee ensemble sampler.
+    Factory function that creates log_probability with connections bound.
 
-    Executes MCMC in blocks of iterations, saving chains after each block.
-    Uses multiprocessing Pool to parallelize walker evaluations across
-    all available CPU cores.
+    Creates a closure that captures realdata, connections, and config,
+    avoiding the need for global variables in multiprocessing.
 
     Args:
-        nwalkers: Number of MCMC walkers
-        ndim: Number of parameters (dimensions)
+        realdata: SALT2mu object containing real data fit results
+        connections: List of SALT2mu connection objects (one per walker)
+        config: Config object with all configuration parameters
 
     Returns:
-        str: "Hi!" upon completion
+        callable: log_probability function suitable for emcee.EnsembleSampler
+    """
+
+    def log_probability(theta):
+        """
+        Calculate log-probability (posterior) for MCMC sampling.
+
+        Combines log-prior and log-likelihood following Bayes' theorem.
+        """
+        lp = log_prior(theta)
+        if not np.isfinite(lp):
+            print("WARNING! We returned -inf from small parameters!", flush=True)
+            return -np.inf
+        worker_id = current_process()._identity[0] - 1
+        connection = connections[worker_id]
+        return lp + log_likelihood(realdata, connection, theta)
+
+    return log_probability
+
+
+def MCMC(pos, nwalkers, ndim, log_prob_fn, max_iterations=100000, convergence_check_interval=100):
+    """
+    Run MCMC sampling using emcee ensemble sampler with HDF5 backend and convergence monitoring.
+
+    Uses the emcee HDF5 backend for robust chain storage and monitors convergence
+    via integrated autocorrelation time. Sampling stops when chains are sufficiently
+    long relative to autocorrelation time and tau estimates have stabilized.
+
+    Args:
+        pos: Initial walker positions array of shape (nwalkers, ndim)
+        nwalkers: Number of MCMC walkers
+        ndim: Number of parameters (dimensions)
+        log_prob_fn: Log-probability function for sampling
+        max_iterations: Maximum number of iterations before stopping (default: 100000)
+        convergence_check_interval: Check convergence every N steps (default: 100)
+
+    Returns:
+        emcee.EnsembleSampler: The sampler object with chain results
+
+    Convergence criteria (from emcee documentation):
+        1. Chain length > 100 * tau (autocorrelation time)
+        2. Tau estimate changed by < 1% since last check
 
     Side effects:
-        - Runs MCMC for 50 blocks of iterations:
-          - First block: 100 steps (burn-in)
-          - Subsequent blocks: 300 steps each
-          - Total: 100 + 49*300 = 14,800 steps
-        - Saves chains to config.outdir/chains/*-samples.npz after each block
-        - Progress bar displayed via emcee's progress=True
-
-    Module-level variables used:
-        pos: Initial walker positions array of shape (nwalkers, ndim)
-        config: Config object with outdir and data_input for output naming
-        log_probability: Function evaluating posterior for each walker
+        - Saves chains to HDF5 file: {outdir}/chains/{data_input}-chains.h5
+        - Saves autocorrelation history to: {outdir}/chains/{data_input}-autocorr.npz
+        - Prints convergence diagnostics every check_interval steps
     """
-    with Pool(nwalkers) as pool:
-        # Instantiate the sampler once (in parallel)
+    # Set up HDF5 backend for robust chain storage
+    chain_filename = (
+        config.outdir + "chains/" + config.data_input.split(".")[0].split("/")[-1] + "-chains.h5"
+    )
+    backend = emcee.backends.HDFBackend(chain_filename)
+    backend.reset(nwalkers, ndim)
+    print(f"Chain storage initialized: {chain_filename}")
 
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool)
-        for qb in range(50):
-            print("Starting loop iteration", qb)
-            print("begun", cpu_count(), "CPUs with", nwalkers, ndim, "walkers and dimensions")
-            sys.stdout.flush()
-            # Run the sampler
-            if qb == 0:
-                state2 = sampler.run_mcmc(pos, 100, progress=True)
-            else:
-                state2 = sampler.run_mcmc(None, 300, progress=True)
-            sys.stdout.flush()
-            # Save the output for later
-            samples = sampler.get_chain()
-            np.savez(
+    # Track autocorrelation time history
+    autocorr_history = np.empty(max_iterations // convergence_check_interval)
+    autocorr_index = 0
+    old_tau = np.inf
+
+    with Pool(nwalkers) as pool:
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob_fn, pool=pool, backend=backend)
+
+        print(f"Starting MCMC with {cpu_count()} CPUs, {nwalkers} walkers, {ndim} dimensions")
+        print(
+            f"Max iterations: {max_iterations}, convergence check every {convergence_check_interval} steps"
+        )
+        print("=" * 60, flush=True)
+
+        # Run with convergence monitoring
+        for sample in sampler.sample(pos, iterations=max_iterations, progress=True):
+            # Only check convergence every N steps
+            if sampler.iteration % convergence_check_interval:
+                continue
+
+            # Compute autocorrelation time
+            # tol=0 means we get an estimate even if chain is short
+            try:
+                tau = sampler.get_autocorr_time(tol=0)
+                autocorr_history[autocorr_index] = np.mean(tau)
+                autocorr_index += 1
+
+                # Check convergence criteria
+                # 1. Chain must be > 100 * tau
+                # 2. Tau estimate must have changed by < 1%
+                converged = np.all(tau * 100 < sampler.iteration)
+                converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
+
+                print(f"\nIteration {sampler.iteration}:")
+                print(f"  Mean tau: {np.mean(tau):.1f}")
+                print(f"  Min tau:  {np.min(tau):.1f}")
+                print(f"  Max tau:  {np.max(tau):.1f}")
+                print(f"  Chain/tau ratio: {sampler.iteration / np.max(tau):.1f} (need > 100)")
+                if np.isfinite(old_tau).all():
+                    tau_change = np.max(np.abs(old_tau - tau) / tau) * 100
+                    print(f"  Tau change: {tau_change:.2f}% (need < 1%)", flush=True)
+
+                if converged:
+                    print("\n" + "=" * 60)
+                    print("CONVERGENCE ACHIEVED!")
+                    print(f"  Final iteration: {sampler.iteration}")
+                    print(f"  Final mean tau: {np.mean(tau):.1f}")
+                    print("=" * 60)
+                    break
+
+                old_tau = tau
+
+            except emcee.autocorr.AutocorrError:
+                # Chain too short for reliable tau estimate
+                print(
+                    f"\nIteration {sampler.iteration}: Chain too short for tau estimate", flush=True
+                )
+
+        # Save autocorrelation history
+        autocorr_filename = (
+            config.outdir
+            + "chains/"
+            + config.data_input.split(".")[0].split("/")[-1]
+            + "-autocorr.npz"
+        )
+        np.savez(autocorr_filename, autocorr=autocorr_history[:autocorr_index])
+        print(f"Autocorrelation history saved to: {autocorr_filename}")
+
+        # Report final statistics
+        print("\n" + "=" * 60)
+        print("MCMC COMPLETE")
+        print("=" * 60)
+        try:
+            tau = sampler.get_autocorr_time()
+            burnin = int(2 * np.max(tau))
+            thin = int(0.5 * np.min(tau))
+            print(f"Final autocorrelation time: {tau}")
+            print(f"Recommended burn-in: {burnin} steps")
+            print(f"Recommended thinning: {thin} steps")
+            print(f"Effective samples: ~{sampler.iteration * nwalkers / np.mean(tau):.0f}")
+
+            # Get flattened samples with burn-in and thinning applied
+            flat_samples = sampler.get_chain(discard=burnin, thin=thin, flat=True)
+            print(f"Shape of thinned samples: {flat_samples.shape}")
+
+            # Save thinned samples for convenience
+            thinned_filename = (
                 config.outdir
                 + "chains/"
                 + config.data_input.split(".")[0].split("/")[-1]
-                + "-samples.npz",
-                samples,
+                + "-samples_thinned.npz"
             )
-            # pltting_func(samples, INP_PARAMS, ndim)
-    return "Hi!"
+            np.savez(thinned_filename, samples=flat_samples, tau=tau, burnin=burnin, thin=thin)
+            print(f"Thinned samples saved to: {thinned_filename}")
+
+        except emcee.autocorr.AutocorrError:
+            print("WARNING: Could not compute final autocorrelation time.")
+            print("Chain may be too short for reliable estimates.")
+            print("Consider running longer or checking for convergence issues.")
+
+    return sampler
     # END MCMC
 
 
@@ -1702,7 +1790,6 @@ if __name__ == "__main__":
     pos, nwalkers, ndim = input_cleaner(
         config.inp_params, config.parameter_initialization, PARAMETER_OVERRIDES, walkfactor=3
     )
-    realdata = init_dust2dust()
 
     # Handle different run modes
     if config.single:
@@ -1731,10 +1818,16 @@ if __name__ == "__main__":
             print("Quitting gracefully.")
             sys.exit(1)
         print("DOPLOT mode enabled. Creating plots from existing chains...")
-        old_chains = np.load(config.chains)
-        past_results = old_chains.f.arr_0
+        # Support both HDF5 and npz formats
+        if config.chains.endswith(".h5"):
+            reader = emcee.backends.HDFBackend(config.chains, read_only=True)
+            past_results = reader.get_chain()
+            print(f"Loaded {past_results.shape[0]} iterations from HDF5 backend")
+        else:
+            old_chains = np.load(config.chains)
+            past_results = old_chains.f.arr_0
         Criteria_Plotter(config.params)
-        pltting_func(past_results, config.params, ndim)
+        pltting_func(past_results, config.inp_params, ndim)
         print("Plotting complete.")
         sys.exit(0)
 
@@ -1746,9 +1839,21 @@ if __name__ == "__main__":
     print(f"  Parameters: {', '.join(config.inp_params)}")
     print("=" * 60 + "\n")
 
+    # 1. Initialize real data first
+    realdata = init_dust2dust()
+
+    # 2. Initialize connections (before Pool is created in MCMC)
     connections = init_connections(nwalkers)
-    MCMC(nwalkers, ndim)
-    # except Exception as e:
-    #    logging.exception(e)
-    #    raise e
+
+    # 3. Create the log_probability closure with connections bound
+    log_prob_fn = make_log_probability(realdata, connections, config)
+
+    # 4. Run MCMC with convergence monitoring
+    sampler = MCMC(pos, nwalkers, ndim, log_prob_fn)
+
+    # 5. Create diagnostic plots from final chain
+    print("\nGenerating diagnostic plots...")
+    samples = sampler.get_chain()
+    pltting_func(samples, config.inp_params, ndim)
+    print("DUST2DUST complete.")
 # end:
