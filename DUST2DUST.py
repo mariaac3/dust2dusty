@@ -1583,7 +1583,7 @@ if __name__ == "__main__":
     connections = init_connections(nwalkers, DEBUG=DEBUG)
 
     # 3. Create the log_probability closure with connections bound
-    log_prob_fn = make_log_probability(realdata, connections, config, debug=DEBUG)
+    log_prob_fn = make_log_probability(realdata, connections, debug=DEBUG)
 
     if config.test_run:
         # if len(config.params) != ndim:
