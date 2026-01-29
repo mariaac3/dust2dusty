@@ -491,7 +491,14 @@ def thetawriter(theta, key, names=False):
         ]  # Returns theta in the range of first to last index for relevant parameter. For example, inp_param = ['c', 'RV'], thetawriter(theta, 'c') would give theta[0:2] which is ['c_m', 'c_std']
 
 
-def input_cleaner(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT,PARAMETER_INITIALIZATION, parameter_overrides, walkfactor=2):
+def input_cleaner(
+    INP_PARAMS,
+    PARAMSHAPESDICT,
+    SPLITDICT,
+    PARAMETER_INITIALIZATION,
+    parameter_overrides,
+    walkfactor=2,
+):
     """
     Initialize MCMC walker starting positions with appropriate constraints.
 
@@ -1033,58 +1040,8 @@ def init_connection(index, real=True, debug=False):
             realdata=True,
             debug=config.debug,
         )
-    else:  # connection is an object that is equal to SUBPROCESS_SIM/DATA
-        connection.getResult()  # Gets result, as it were
     return realdata, connection
     # END init_connection
-
-
-def connection_prepare(connection):
-    """
-    Prepare SALT2mu connection for next likelihood evaluation.
-
-    Increments iteration counter and opens output file for writing PDF functions.
-
-    Args:
-        connection: SALT2mu connection object
-
-    Returns:
-        SALT2mu: Updated connection object with incremented iteration
-
-    Side effects:
-        - Increments connection.iter
-        - Opens/truncates crosstalk file for new iteration
-    """
-
-    return connection
-    # END connection_prepare
-
-
-def connection_next(connection):
-    """
-    Finalize current iteration and execute SALT2mu with written PDFs.
-
-    Closes iteration in output file, sends iteration number to SALT2mu subprocess,
-    waits for results, and parses output.
-
-    Args:
-        connection: SALT2mu connection object
-
-    Returns:
-        SALT2mu: Connection object with updated results
-
-    Side effects:
-        - Writes iteration end marker to crosstalk file
-        - Sends iteration number to SALT2mu stdin
-        - Reads and parses SALT2mu output
-    """
-    connection.write_iterend()
-    print("wrote end")
-    connection.next()
-    print("submitted next iter")
-    connection.getResult()
-    return connection
-    # END connection_next
 
 
 def normhisttodata(datacount, simcount):
@@ -1167,12 +1124,8 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
     """
     print(f"Current PID is {os.getpid()}")
 
-    # Cycle iteration
-    connection.iter += 1  # tick up iteration by one
-    connection.write_iterbegin()  # open SOMETHING.DAT for that iteration
-
-    print("writing 1d pdf", flush=True)
-
+    # Generate PDF for given theta parameters
+    print("writing PDF", flush=True)
     for inp in config.inp_params:  # TODO - need to generalise to 2d functions as well
         connection.write_generic_PDF(
             inp,
@@ -1184,20 +1137,8 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
             array_conv(inp, config.splitdict, config.splitarr),
         )
 
-    print("next", flush=True)
-    # Check if process has terminated
-    if connection.process.poll() is None:
-        print("Process is still running")
-    else:
-        print(f"Process has terminated with return code: {connection.process.poll()}")
-    # NOW RUN SALT2mu with these new distributions
-    connection.write_iterend()
-
-    print("wrote end")
-    connection.next()
-    print("submitted next iter")
-    connection.getResult()
-    print("got result", flush=True)
+    # Run SALT2mu with these PDFs
+    connection.run_iter()  # open SOMETHING.DAT for that iteration
 
     if connection.maxprob > 1.001:
         print(
@@ -1269,6 +1210,7 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
     #     "we found an LL of",
     #     out_result, flush=True
     # )
+    connection.iter += 1  # tick up iteration by one
     return out_result
     # END log_likelihood
 
@@ -1608,8 +1550,12 @@ if __name__ == "__main__":
     # 3. Run MCMC with convergence monitoring
     # Initialize MCMC
     pos, nwalkers, ndim = input_cleaner(
-        config.inp_params, config.paramshapesdict, splitdict, 
-        config.parameter_initialization, PARAMETER_OVERRIDES, walkfactor=3
+        config.inp_params,
+        config.paramshapesdict,
+        config.splitdict,
+        config.parameter_initialization,
+        PARAMETER_OVERRIDES,
+        walkfactor=3,
     )
     print("\n" + "=" * 60)
     print("Starting MCMC sampling...")

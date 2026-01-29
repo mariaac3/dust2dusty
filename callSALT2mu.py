@@ -108,7 +108,7 @@ class SALT2mu:
         """
         # print(command%(mapsout,SALT2muout,log))
         self.logger = setup_custom_logger("walker_" + os.path.basename(mapsout).split("_")[0])
-        self.iter = -1
+        self.iter = 0
         self.debug = debug  # Boolean. Default False.
         self.ready = "Enter expected ITERATION number"
         self.ready2 = "ITERATION=%d"
@@ -117,7 +117,7 @@ class SALT2mu:
         self.crosstalkfile = open(mapsout, "w")
         self.SALT2muoutputs = open(SALT2muout, "r")  # An output file
 
-        self.command = command
+        self.command = command % (mapsout, SALT2muout, log)
 
         self.logger.info("Init SALT2mu instance. ")
         self.logger.info("## ================================== ##")
@@ -128,6 +128,9 @@ class SALT2mu:
         if self.debug:
             self.command = self.command + " write_yaml=1"
 
+        self.logger.info("Command being run: " + self.command)
+        self.data = False
+
         if realdata:  # this is awful )
             self.logger.info("Running realdata=True")
             os.system(
@@ -135,22 +138,9 @@ class SALT2mu:
             )  # command is an input variable formatted as a string and passed to system
             self.logger.info("Command being run: " + (command % (mapsout, SALT2muout, log)))
             self.getData()  # calls getData
-        else:
-            self.logger.info("Running realdata=False")
-
-            self.process = subprocess.Popen(
-                (self.command % (mapsout, SALT2muout, log)).split(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-                bufsize=0,
-                universal_newlines=True,
-            )
-            self.logger.info("Command being run: " + (self.command % (mapsout, SALT2muout, log)))
-            self.stdout_iterator = iter(self.process.stdout.readline, "")
         # END __init__
 
-    def next(self):
+    def run_iter(self):
         """
         Send iteration number to SALT2mu subprocess.
 
@@ -161,62 +151,11 @@ class SALT2mu:
             - Writes self.iter to subprocess stdin
         """
         print("writing next iter to stdin")
-        self.process.stdin.write("%d\n" % self.iter)
+        self.write_iterbegin()
+        results = subprocess.run([self.command], shell=True)
+        self.data = self.getData()
+        self.write_iterend()
         # END next
-
-    def quit(self):
-        """
-        Terminate SALT2mu subprocess gracefully.
-
-        Sends -1 to subprocess stdin to trigger shutdown, then prints remaining output.
-
-        Side effects:
-            - Writes '-1' to subprocess stdin
-            - Prints all remaining stdout lines
-        """
-        self.process.stdin.write("-1\n")
-        for stdout_line in iter(self.process.stdout.readline, ""):
-            print(stdout_line)
-        # END quit
-
-    def getResult(self):
-        """
-        Wait for SALT2mu to finish iteration and signal readiness.
-
-        Reads subprocess stdout until finding the 'ready' signal, indicating
-        SALT2mu has finished processing and written results.
-
-        For iter=-1 (initialization): Returns when first 'ready' message seen
-        For iter>=0: Calls getData() when 'ready' message seen
-
-        Side effects:
-            - Reads from subprocess stdout (blocking)
-            - If debug: logs all stdout lines
-            - Sets self.data = True after getData() call
-
-        Returns:
-            None
-        """
-        start = False
-        self.stdout_iterator = iter(self.process.stdout.readline, "")
-        # print(self.stdout_iterator)
-        for stdout_line in self.stdout_iterator:
-            if self.debug:
-                self.logger.debug(stdout_line)
-            if str(self.done) in stdout_line:
-                return
-            # if str(self.ready) in stdout_line:
-            if self.iter == -1:
-                if str(self.ready) in stdout_line:
-                    # self.data = self.getData()
-                    return
-            else:
-                # if self.ready2%(self.iter-1) in stdout_line:
-                if str(self.ready) in stdout_line:
-                    print("getting data")
-                    self.data = self.getData()
-                    return
-        # END getResult
 
     def getData(self):
         """

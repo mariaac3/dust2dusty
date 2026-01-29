@@ -1,0 +1,23 @@
+NEVT_DATA:             1688 
+NEVT_BIASCOR:          0 
+NEVT_CCPRIOR:          0 
+NEVT_REJECT_CUTWIN:    0
+NEVT_REJECT_BIASCOR:   0
+ABORT_IF_ZERO:         1688
+NWARN_CRAZYERR:        0
+NFIT_EXEC:             1
+CPU_MINUTES:           0.02
+ISDATA_REAL:           1
+
+BBCFIT_RESULTS:
+  - NSNFIT:             1688     41
+  - SIGINT:            0.12238    0.0
+  - alpha0:               0.14294  0.00460 
+  - beta0:                2.82156  0.04885 
+  - scalePCC:             0.11708  0.32209 
+  - H11mucc0:             -4.95771  10.62273 
+  - H11mucc1:             3.30721  11.83743 
+  - H11mucc2:             14.39340  37.22446 
+  - H11sigcc0:            1.38946  1.29785 
+  - H11sigcc1:            3.28042  11.85233 
+  - H11sigcc2:            -8.99872  0.21445 
