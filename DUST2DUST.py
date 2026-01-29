@@ -1392,43 +1392,53 @@ def init_connections(nwalkers: int, DEBUG=False):
     # END init_connections
 
 
-def make_log_probability(realdata, connections, debug=False):
+# Module-level variables for multiprocessing workers
+_worker_realdata = None
+_worker_connection = None
+_worker_debug = False
+
+
+def _init_worker(realdata, connections, debug):
     """
-    Factory function that creates log_probability with connections bound.
+    Initializer function for Pool workers.
 
-    Creates a closure that captures realdata, connections, and config,
-    avoiding the need for global variables in multiprocessing.
-
-    Args:
-        realdata: SALT2mu object containing real data fit results
-        connections: List of SALT2mu connection objects (one per walker)
-        config: Config object with all configuration parameters
-
-    Returns:
-        callable: log_probability function suitable for emcee.EnsembleSampler
+    Sets up worker-local state by storing the appropriate connection
+    for this worker based on its process identity.
     """
-
-    def log_probability(theta):
-        """
-        Calculate log-probability (posterior) for MCMC sampling.
-
-        Combines log-prior and log-likelihood following Bayes' theorem.
-        """
-        lp = log_prior(theta)
-        if not np.isfinite(lp):
-            print("WARNING! We returned -inf from small parameters!", flush=True)
-            return -np.inf
-        if debug:
-            worker_id = 0
-        else:
-            worker_id = current_process()._identity[0] - 1
-        connection = connections[worker_id]
-        return lp + log_likelihood(realdata, connection, theta)
-
-    return log_probability
+    global _worker_realdata, _worker_connection, _worker_debug
+    _worker_realdata = realdata
+    _worker_debug = debug
+    if debug:
+        worker_id = 0
+    else:
+        worker_id = current_process()._identity[0] - 1
+    _worker_connection = connections[worker_id]
 
 
-def MCMC(pos, nwalkers, ndim, log_prob_fn, max_iterations=100000, convergence_check_interval=100):
+def log_probability(theta):
+    """
+    Calculate log-probability (posterior) for MCMC sampling.
+
+    Combines log-prior and log-likelihood following Bayes' theorem.
+    Must be called after _init_worker has set up the worker state.
+    """
+    lp = log_prior(theta)
+    if not np.isfinite(lp):
+        print("WARNING! We returned -inf from small parameters!", flush=True)
+        return -np.inf
+    return lp + log_likelihood(_worker_realdata, _worker_connection, theta)
+
+
+def MCMC(
+    pos,
+    nwalkers,
+    ndim,
+    realdata,
+    connections,
+    debug=False,
+    max_iterations=100000,
+    convergence_check_interval=100,
+):
     """
     Run MCMC sampling using emcee ensemble sampler with HDF5 backend and convergence monitoring.
 
@@ -1440,7 +1450,9 @@ def MCMC(pos, nwalkers, ndim, log_prob_fn, max_iterations=100000, convergence_ch
         pos: Initial walker positions array of shape (nwalkers, ndim)
         nwalkers: Number of MCMC walkers
         ndim: Number of parameters (dimensions)
-        log_prob_fn: Log-probability function for sampling
+        realdata: SALT2mu object containing real data fit results
+        connections: List of SALT2mu connection objects (one per walker)
+        debug: If True, run in debug mode (default: False)
         max_iterations: Maximum number of iterations before stopping (default: 100000)
         convergence_check_interval: Check convergence every N steps (default: 100)
 
@@ -1469,8 +1481,8 @@ def MCMC(pos, nwalkers, ndim, log_prob_fn, max_iterations=100000, convergence_ch
     autocorr_index = 0
     old_tau = np.inf
 
-    with Pool(nwalkers) as pool:
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob_fn, pool=pool, backend=backend)
+    with Pool(nwalkers, initializer=_init_worker, initargs=(realdata, connections, debug)) as pool:
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, backend=backend)
 
         print(f"Starting MCMC with {cpu_count()} CPUs, {nwalkers} walkers, {ndim} dimensions")
         print(
@@ -1587,18 +1599,13 @@ if __name__ == "__main__":
     # 2. Initialize connections (before Pool is created in MCMC)
     connections = init_connections(nwalkers, DEBUG=DEBUG)
 
-    # 3. Create the log_probability closure with connections bound
-    log_prob_fn = make_log_probability(realdata, connections, debug=DEBUG)
-
     if config.test_run:
-        # if len(config.params) != ndim:
-        #     print(f"ERROR: Parameter count mismatch. Expected {ndim}, got {len(config.params)}")
-        #     print("Quitting to avoid confusion.")
-        #     sys.exit(1)
-        print(log_prob_fn(config.params))
+        # For test run, initialize worker state directly and call log_probability
+        _init_worker(realdata, connections, debug=DEBUG)
+        print(log_probability(config.params))
         sys.exit(0)
 
-    # 4. Run MCMC with convergence monitoring
+    # 3. Run MCMC with convergence monitoring
     # Initialize MCMC
     pos, nwalkers, ndim = input_cleaner(
         config.inp_params, config.parameter_initialization, PARAMETER_OVERRIDES, walkfactor=3
@@ -1609,7 +1616,7 @@ if __name__ == "__main__":
     print(f"  Dimensions: {ndim}")
     print(f"  Parameters: {', '.join(config.inp_params)}")
     print("=" * 60 + "\n")
-    sampler = MCMC(pos, nwalkers, ndim, log_prob_fn)
+    sampler = MCMC(pos, nwalkers, ndim, realdata, connections, debug=DEBUG)
 
     print("DUST2DUST complete.")
 # end:
