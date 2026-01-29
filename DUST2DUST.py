@@ -1126,7 +1126,7 @@ def normhisttodata(datacount, simcount):
 # =======================================================
 
 
-def log_likelihood(realdata, connection, theta, returnall: bool = False):
+def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: bool = False):
     """
     Calculate log-likelihood for proposed parameter values.
 
@@ -1188,6 +1188,7 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False):
 
     # NOW RUN SALT2mu with these new distributions
     connection.write_iterend()
+        
     print("wrote end")
     connection.next()
     print("submitted next iter")

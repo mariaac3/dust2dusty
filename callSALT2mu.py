@@ -416,6 +416,12 @@ class SALT2mu:
         self.crosstalkfile.truncate(0)
         self.crosstalkfile.seek(0)
         self.crosstalkfile.write("ITERATION_BEGIN: %d\n" % self.iter)
+
+        # Check if process has terminated
+        if self.process.poll() is None:
+            print("Process is still running")
+        else:
+            print(f"Process has terminated with return code: {self.process.poll()}")
         # END write_iterbegin
 
     def write_iterend(self):
