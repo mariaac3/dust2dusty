@@ -6,7 +6,7 @@ NEVT_REJECT_BIASCOR:   0
 ABORT_IF_ZERO:         1688
 NWARN_CRAZYERR:        0
 NFIT_EXEC:             1
-CPU_MINUTES:           0.02
+CPU_MINUTES:           0.03
 ISDATA_REAL:           1
 
 BBCFIT_RESULTS:
