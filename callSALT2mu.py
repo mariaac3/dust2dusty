@@ -30,6 +30,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from io import StringIO
 
 import numpy as np
@@ -109,14 +110,14 @@ class SALT2mu:
             - If realdata=True: Runs SALT2mu via os.system and calls getData()
             - If realdata=False: Launches SALT2mu.exe subprocess
         """
-        # print(command%(mapsout,SALT2muout,log))
-        # I
+        print("COMMAND:", command % (mapsout, SALT2muout, log), flush=True)
+
         self.logger = setup_custom_logger(
             "walker_" + os.path.basename(mapsout).split("_")[0], debug=debug
         )
-        self.iter = 0
+        self.iter = -1
         self.debug = debug  # Boolean. Default False.
-        self.ready = "Enter expected ITERATION number"
+        self.ready_enditer = "Enter expected ITERATION number"
         self.ready2 = "ITERATION=%d"
         self.done = "Graceful Program Exit. Bye."
         self.initready = "Finished SUBPROCESS_INIT"
@@ -137,37 +138,72 @@ class SALT2mu:
         self.logger.info("Command being run: " + self.command)
         self.data = False
 
+        self.process = subprocess.Popen(
+            command, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1
+        )
+        self.wait_until_text_in_output(self.ready_enditer)
+
         if realdata:  # this is awful )
             self.logger.info("Running realdata=True")
-            os.system(
-                command % (mapsout, SALT2muout, log)
-            )  # command is an input variable formatted as a string and passed to system
-            self.logger.info("Command being run: " + (command % (mapsout, SALT2muout, log)))
             self.getData()  # calls getData
+            self.quit()
         # END __init__
 
-    def run_iter(self):
-        """
-        Send iteration number to SALT2mu subprocess.
+    def quit(self):  # sets iteration input to -1, which causes a quit somewhere
+        self.process.stdin.write("-1\n")
+        for stdout_line in iter(self.process.stdout.readline, ""):
+            print(stdout_line)
+        # END quit
+        #
 
-        Writes current iteration number to subprocess stdin to trigger
-        processing of PDFs written to crosstalk file.
+    def wait_until_text_in_output(self, expected_text, timeout=120):
+        start = time.time()
 
-        Side effects:
-            - Writes self.iter to subprocess stdin
-        """
-        if self.debug:
-            print("writing next iter to stdin")
+        # Wait for specific output using iter()
+        for line in iter(self.process.stdout.readline, ""):
+            if expected_text in line:
+                break
+
+            if time.time() - start > timeout:
+                raise TimeoutError(f"Timeout waiting for '{expected_text}'")
+        return
+
+    def next_iter(
+        self,
+        theta_dic,
+        config,
+    ):  # ticks up iteration by one
+        self.iter += 1
         self.write_iterbegin()
 
-        stdout = None
-        stdin = None
-        if not self.debug:
-            stdout = subprocess.DEVNULL
-            stdin = subprocess.DEVNULL
-        results = subprocess.run([self.command], shell=True, stdout=stdout, stdin=stdin)
-        self.data = self.getData()
+        for par_key in config.inp_params:
+            bounds = (theta_dic[par_key][0], theta_dic[par_key][-1] + 1)
+
+            arr = []
+            if par_key not in ["beta", "alpha"]:
+                arr.append(config.DEFAULT_PARAMETER_RANGES[par_key])
+                for s in config.split_dic.keys():
+                    arr.append(eval((config.splitarr[s])))
+
+            self.write_generic_PDF(
+                par_key,
+                config.split_dic,
+                bounds,
+                config.paramshapesdict[par_key],
+                config.DISTRIBUTION_PARAMETERS,
+                config.PARAM_TO_SALT2MU,
+                arr,
+            )
+
+        self.logger.info("Launch next step")
         self.write_iterend()
+
+        # Launch SALT2mu on new dist and wait for done
+        self.process.stdin.write("%d\n" % self.iter)
+        self.process.stdin.flush()
+        self.wait_until_text_in_output(self.ready_enditer)
+
+        self.data = self.getData()
         # END next
 
     def getData(self):
