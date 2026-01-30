@@ -54,8 +54,8 @@ import argparse
 import itertools
 import logging
 from dataclasses import dataclass, field
-from multiprocessing import Pool, cpu_count, current_process
-from typing import Any, Dict, List, Optional
+from multiprocessing import Pool, cpu_count
+from typing import Any, ClassVar, Dict, List, Optional
 
 import emcee
 import numpy as np
@@ -90,9 +90,10 @@ class Config:
     - Command-line overrides: cmd_data, cmd_sim
     - Flags: single, debug, noweight
     """
+
     # Parameter name mappings for SALT2mu format
     # Converts internal parameter names to SALT2mu/simulation column names
-    PARAM_TO_SALT2MU: Dict[str, str] = {
+    PARAM_TO_SALT2MU: ClassVar[Dict[str, str]] = {
         "c": "SIM_c",
         "x1": "SIM_x1",
         "HOST_LOGMASS": "HOST_LOGMASS",
@@ -109,7 +110,7 @@ class Config:
 
     # SNANA output format mappings
     # Converts SUBPROCESS column names to SNANA standard names
-    SUBPROCESS_TO_SNANA: Dict[str, str] = {
+    SUBPROCESS_TO_SNANA: ClassVar[Dict[str, str]] = {
         "SIM_c": "SALT2c",
         "SIM_RV": "RV",
         "HOST_LOGMASS": "LOGMASS",
@@ -121,7 +122,7 @@ class Config:
 
     # Default value ranges for parameter arrays
     # Defines the grid of values used for PDF generation for each parameter
-    DEFAULT_PARAMETER_RANGES: Dict[str, np.ndarray] = {
+    DEFAULT_PARAMETER_RANGES: ClassVar[Dict[str, np.ndarray]] = {
         "c": np.arange(-0.5, 0.5, 0.001),
         "x1": np.arange(-5, 5, 0.01),
         "RV": np.arange(0, 8, 0.1),
@@ -132,7 +133,7 @@ class Config:
     # Split parameter format specifications
     # Defines how parameters are split into bins for SALT2mu output
     # Format: 'PARAM(nbins, min:max)'
-    SPLIT_PARAMETER_FORMATS: Dict[str, str] = {
+    SPLIT_PARAMETER_FORMATS: ClassVar[Dict[str, str]] = {
         "HOST_LOGMASS": "HOST_LOGMASS(2,0:20)",
         "HOST_COLOR": "HOST_COLOR(2,-.5:2.5)",
         "zHD": "zHD(2,0:1)",
@@ -141,11 +142,11 @@ class Config:
     # Parameter override dictionary
     # Used to fix specific parameters during fitting (not fitted, held constant)
     # Populated programmatically based on user input or left empty for standard fitting
-    PARAMETER_OVERRIDES: Dict[str, float] = {}
+    PARAMETER_OVERRIDES: ClassVar[Dict[str, float]] = {}
 
     # Distribution parameter specifications
     # Maps distribution types to their required parameter names
-    DISTRIBUTION_PARAMETERS: Dict[str, List[str]] = {
+    DISTRIBUTION_PARAMETERS: ClassVar[Dict[str, List[str]]] = {
         "Gaussian": ["mu", "std"],
         "Skewed Gaussian": ["mu", "std_l", "std_r"],
         "Exponential": ["Tau"],
@@ -168,7 +169,6 @@ class Config:
     splitparam: str = "HOST_LOGMASS"
     parameter_initialization: Dict[str, List[Any]] = field(default_factory=dict)
     splitarr: Dict[str, str] = field(default_factory=dict)
-
 
     # Command-line overrides (set by args, not config file)
     cmd_data: Optional[str] = None
@@ -435,7 +435,6 @@ def get_args():
     args = parser.parse_args()
     return args
     # END get_args
-
 
 
 # =======================================================
@@ -917,7 +916,7 @@ def subprocess_to_snana(OUTDIR, snana_mapping):
 # =======================================================
 
 
-def generate_genpdf_varnames(inp_params, splitparam):
+def generate_genpdf_varnames(config, inp_params, splitparam):
     """
     Generate SUBPROCESS_VARNAMES_GENPDF string for SALT2mu from input parameters.
 
@@ -963,7 +962,7 @@ def generate_genpdf_varnames(inp_params, splitparam):
     return ",".join(varnames)
 
 
-def init_connection(index, real=True, debug=False):
+def init_connection(config, index, real=True, debug=False):
     """
     Initialize connection(s) to SALT2mu.exe subprocess(es).
 
@@ -1019,7 +1018,7 @@ def init_connection(index, real=True, debug=False):
     Path(subprocess_log_sim).touch()
 
     # Generate output table specification (color bins x split parameter bins)
-    arg_outtable = f"'c(6,-0.2:0.25)*{SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
+    arg_outtable = f"'c(6,-0.2:0.25)*{config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
 
     # Generate GENPDF variable names from input parameters
     GENPDF_NAMES = generate_genpdf_varnames(config.inp_params, config.splitparam)
@@ -1255,7 +1254,7 @@ def log_prior(theta):
     # END log_prior
 
 
-def init_dust2dust(debug=False):
+def init_dust2dust(config, debug=False):
     """
     Initialize DUST2DUST by running SALT2mu on real data.
 
@@ -1284,7 +1283,7 @@ def init_dust2dust(debug=False):
     if debug:
         index = 299
 
-    realdata, _ = init_connection(index, real=True, debug=debug)
+    realdata, _ = init_connection(config, index, real=True, debug=debug)
 
     return realdata
     # END init_dust2dust
@@ -1331,7 +1330,7 @@ _worker_connection = None
 _worker_debug = False
 
 
-def _init_worker(realdata, debug):
+def _init_worker(config, realdata, debug):
     """
     Initializer function for Pool workers.
 
@@ -1341,7 +1340,7 @@ def _init_worker(realdata, debug):
     global _worker_realdata, _worker_connection, _worker_debug
     _worker_realdata = realdata
     _worker_debug = debug
-    -, _worker_connection = init_connection(debug=debug)
+    _, _worker_connection = init_connection(config, debug=debug)
 
 
 def log_probability(theta):
@@ -1360,6 +1359,7 @@ def log_probability(theta):
 
 
 def MCMC(
+    config,
     pos,
     nwalkers,
     ndim,
@@ -1411,7 +1411,7 @@ def MCMC(
     autocorr_index = 0
     old_tau = np.inf
 
-    with Pool(nwalkers, initializer=_init_worker, initargs=(realdata, debug)) as pool:
+    with Pool(nwalkers, initializer=_init_worker, initargs=(config, realdata, debug)) as pool:
         sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, backend=backend)
 
         if debug:
@@ -1532,7 +1532,7 @@ if __name__ == "__main__":
 
     DEBUG = config.debug or config.test_run
     # 1. Initialize real data first
-    realdata = init_dust2dust(debug=DEBUG)
+    realdata = init_dust2dust(config, debug=DEBUG)
 
     if DEBUG:
         nwalkers = 1
@@ -1542,14 +1542,14 @@ if __name__ == "__main__":
             config.paramshapesdict,
             config.splitdict,
             config.parameter_initialization,
-            PARAMETER_OVERRIDES,
+            config.PARAMETER_OVERRIDES,
             walkfactor=3,
         )
 
     # 2. Test run (before Pool is created in MCMC)
     if config.test_run:
         # For test run, initialize worker state directly and call log_probability
-        _init_worker(realdata, debug=DEBUG)
+        _init_worker(config, realdata, debug=DEBUG)
         print(log_probability(config.params))
         sys.exit(0)
 
@@ -1562,7 +1562,7 @@ if __name__ == "__main__":
         print(f"  Dimensions: {ndim}")
         print(f"  Parameters: {', '.join(config.inp_params)}")
         print("=" * 60 + "\n")
-    sampler = MCMC(pos, nwalkers, ndim, realdata, connections, debug=DEBUG)
+    sampler = MCMC(config, pos, nwalkers, ndim, realdata, connections, debug=DEBUG)
 
     print("DUST2DUST complete.")
 # end:
