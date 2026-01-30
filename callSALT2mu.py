@@ -182,12 +182,13 @@ class SALT2mu:
             arr = []
             if par_key not in ["beta", "alpha"]:
                 arr.append(config.DEFAULT_PARAMETER_RANGES[par_key])
-                for s in config.split_dic.keys():
-                    arr.append(eval((config.splitarr[s])))
+                if par_key in config.splitdict.keys():
+                    for s in config.splitdict[par_key].keys():
+                        arr.append(eval((config.splitarr[s])))
 
             self.write_generic_PDF(
                 par_key,
-                config.split_dic,
+                config.splitdict,
                 bounds,
                 config.paramshapesdict[par_key],
                 config.DISTRIBUTION_PARAMETERS,

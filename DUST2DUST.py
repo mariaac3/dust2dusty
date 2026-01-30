@@ -580,7 +580,7 @@ def pconv(INP_PARAMS, paramshapesdict, splitdict):
     """
     inpfull = []
     for i in INP_PARAMS:
-        initial_dimension = DISTRIBUTION_PARAMETERS[paramshapesdict[i]]
+        initial_dimension = Config.DISTRIBUTION_PARAMETERS[paramshapesdict[i]]
         if i in splitdict.keys():
             things_to_split_on = splitdict[i]  # {"Mass": 10, "z": 0.1}
             nsplits = len(things_to_split_on)  # 2
@@ -629,7 +629,7 @@ def array_conv(inp, SPLITDICT, SPLITARR):
     if (inp == "beta") or (inp == "alpha"):
         return []
     arrlist = []
-    arrlist.append(DEFAULT_PARAMETER_RANGES[inp])
+    arrlist.append(Config.DEFAULT_PARAMETER_RANGES[inp])
     if inp in SPLITDICT.keys():
         for s in SPLITDICT[inp].keys():
             arrlist.append(eval((SPLITARR[s])))
@@ -916,7 +916,7 @@ def subprocess_to_snana(OUTDIR, snana_mapping):
 # =======================================================
 
 
-def generate_genpdf_varnames(config, inp_params, splitparam):
+def generate_genpdf_varnames(inp_params, splitparam):
     """
     Generate SUBPROCESS_VARNAMES_GENPDF string for SALT2mu from input parameters.
 
@@ -944,8 +944,8 @@ def generate_genpdf_varnames(config, inp_params, splitparam):
 
     # Add parameter variables in SALT2mu format
     for param in inp_params:
-        if param in PARAM_TO_SALT2MU:
-            salt2mu_name = PARAM_TO_SALT2MU[param]
+        if param in Config.PARAM_TO_SALT2MU:
+            salt2mu_name = Config.PARAM_TO_SALT2MU[param]
             if salt2mu_name not in varnames:  # Avoid duplicates
                 varnames.append(salt2mu_name)
 
@@ -1376,11 +1376,11 @@ def MCMC(
     long relative to autocorrelation time and tau estimates have stabilized.
 
     Args:
+        config: Config object with configuration parameters
         pos: Initial walker positions array of shape (nwalkers, ndim)
         nwalkers: Number of MCMC walkers
         ndim: Number of parameters (dimensions)
         realdata: SALT2mu object containing real data fit results
-        connections: List of SALT2mu connection objects (one per walker)
         debug: If True, run in debug mode (default: False)
         max_iterations: Maximum number of iterations before stopping (default: 100000)
         convergence_check_interval: Check convergence every N steps (default: 100)
@@ -1562,7 +1562,7 @@ if __name__ == "__main__":
         print(f"  Dimensions: {ndim}")
         print(f"  Parameters: {', '.join(config.inp_params)}")
         print("=" * 60 + "\n")
-    sampler = MCMC(config, pos, nwalkers, ndim, realdata, connections, debug=DEBUG)
+    sampler = MCMC(config, pos, nwalkers, ndim, realdata, debug=DEBUG)
 
     print("DUST2DUST complete.")
 # end:
