@@ -220,7 +220,7 @@ class Config:
 # ===========================================================================================================================================
 
 
-def create_output_directories(outdir, debug=False):
+def create_output_directories(outdir):
     """
     Create output directory structure for DUST2DUST results.
 
@@ -232,7 +232,6 @@ def create_output_directories(outdir, debug=False):
 
     Args:
         outdir: Path to main output directory (can be relative or absolute)
-        debug: If True, print verbose output (default: False)
 
     Returns:
         str: Absolute path to output directory with trailing slash
@@ -253,16 +252,14 @@ def create_output_directories(outdir, debug=False):
 
     # Create main directory if it doesn't exist
     if not os.path.exists(outdir):
-        if debug:
-            print(f"Creating output directory: {outdir}")
+        logger.debug(f"Creating output directory: {outdir}")
         try:
             os.makedirs(outdir)
         except OSError as e:
-            print(f"ERROR: Could not create directory {outdir}: {e}")
+            logger.error(f"Could not create directory {outdir}: {e}")
             sys.exit(1)
     else:
-        if debug:
-            print(f"Using existing directory: {outdir}")
+        logger.debug(f"Using existing directory: {outdir}")
 
     # Create required subdirectories
     required_subdirs = ["chains", "figures", "parallel", "logs"]
@@ -271,35 +268,46 @@ def create_output_directories(outdir, debug=False):
         if not os.path.exists(subdir_path):
             try:
                 os.makedirs(subdir_path)
-                if debug:
-                    print(f"  Created subdirectory: {subdir}/")
+                logger.debug(f"  Created subdirectory: {subdir}/")
             except OSError as e:
-                print(f"ERROR: Could not create subdirectory {subdir_path}: {e}")
+                logger.error(f"Could not create subdirectory {subdir_path}: {e}")
                 sys.exit(1)
 
     # Verify all required subdirectories exist
     missing_dirs = [d for d in required_subdirs if not os.path.isdir(os.path.join(outdir, d))]
     if missing_dirs:
-        print(f"ERROR: Missing required subdirectories: {missing_dirs}")
-        print("Required subdirectories: chains, figures, parallel, logs")
+        logger.error(f"Missing required subdirectories: {missing_dirs}")
+        logger.error("Required subdirectories: chains, figures, parallel, logs")
         sys.exit(1)
 
     return outdir
 
 
-def setup_logging():
+def setup_logging(debug=False):
     """
     Configure logging settings for the main program.
 
-    Sets up basic logging configuration with INFO level and custom format.
-    Suppresses verbose output from matplotlib and seaborn.
+    Sets up basic logging configuration with INFO level (or DEBUG if debug=True)
+    and custom format. Suppresses verbose output from matplotlib and seaborn.
+
+    Args:
+        debug: If True, set logging level to DEBUG (default: False)
+
+    Returns:
+        logging.Logger: Configured logger instance for DUST2DUST
     """
+    level = logging.DEBUG if debug else logging.INFO
     logging.basicConfig(
-        level=logging.INFO, format="[%(levelname)8s |%(filename)21s:%(lineno)3d]   %(message)s"
+        level=level, format="[%(levelname)8s |%(filename)21s:%(lineno)3d]   %(message)s"
     )
     logging.getLogger("matplotlib").setLevel(logging.ERROR)
     logging.getLogger("seaborn").setLevel(logging.ERROR)
+    return logging.getLogger("DUST2DUST")
     # END setup_logging
+
+
+# Module-level logger (initialized in main)
+logger = logging.getLogger("DUST2DUST")
 
 
 def load_config(config_path: str, args: argparse.Namespace) -> Config:
@@ -325,11 +333,11 @@ def load_config(config_path: str, args: argparse.Namespace) -> Config:
     """
     # Validate config file path
     if not config_path:
-        print("ERROR: No configuration file specified. Use --CONFIG <path>")
+        logger.error("No configuration file specified. Use --CONFIG <path>")
         sys.exit(1)
 
     if not os.path.exists(config_path):
-        print(f"ERROR: Configuration file not found: {config_path}")
+        logger.error(f"Configuration file not found: {config_path}")
         sys.exit(1)
 
     # Load YAML file
@@ -337,8 +345,8 @@ def load_config(config_path: str, args: argparse.Namespace) -> Config:
         with open(config_path, "r") as cfgfile:
             config_dict = yaml.load(cfgfile, Loader=yaml.FullLoader)
     except yaml.YAMLError as e:
-        print(f"ERROR: Invalid YAML syntax in {config_path}")
-        print(e)
+        logger.error(f"Invalid YAML syntax in {config_path}")
+        logger.error(e)
         sys.exit(1)
 
     # Validate required keys
@@ -354,25 +362,23 @@ def load_config(config_path: str, args: argparse.Namespace) -> Config:
     ]
     missing_keys = [key for key in required_keys if key not in config_dict]
     if missing_keys:
-        print(f"ERROR: Missing required configuration keys: {missing_keys}")
+        logger.error(f"Missing required configuration keys: {missing_keys}")
         sys.exit(1)
 
     # Create Config object from dictionary and args
     config = Config.from_dict(config_dict, args)
 
-    if config.debug:
-        print(f"Loaded configuration from: {config_path}")
+    logger.debug(f"Loaded configuration from: {config_path}")
 
     # Set up output directory structure
-    config.outdir = create_output_directories(config.outdir, debug=config.debug)
+    config.outdir = create_output_directories(config.outdir)
 
-    # Print configuration summary
-    if config.debug:
-        print("Configuration finalized successfully.")
-        print(f"  Data: {config.data_input}")
-        print(f"  Simulation: {config.sim_input}")
-        print(f"  Parameters to fit: {', '.join(config.inp_params)}")
-        print(f"  Output directory: {config.outdir}")
+    # Log configuration summary
+    logger.debug("Configuration finalized successfully.")
+    logger.debug(f"  Data: {config.data_input}")
+    logger.debug(f"  Simulation: {config.sim_input}")
+    logger.debug(f"  Parameters to fit: {', '.join(config.inp_params)}")
+    logger.debug(f"  Output directory: {config.outdir}")
 
     return config
     # END load_config
@@ -761,14 +767,9 @@ def LL_Creator(realdata, sim, inparr, returnall=False, RMS_weight=1):
 
     # ========== Parameter likelihood terms ==========
     # Beta (color-luminosity relation)
-    if config.debug:
-        print(
-            "real beta, sim beta, real beta error",
-            realdata.beta,
-            sim.beta,
-            realdata.betaerr,
-            flush=True,
-        )
+    logger.debug(
+        f"real beta, sim beta, real beta error: {realdata.beta}, {sim.beta}, {realdata.betaerr}"
+    )
 
     LL_dict["beta"] = -0.5 * ((realdata.beta - sim.beta) / realdata.betaerr) ** 2
 
@@ -850,8 +851,8 @@ def LL_Creator(realdata, sim, inparr, returnall=False, RMS_weight=1):
             invalid_components.append(key)
 
     if invalid_components:
-        print(f"WARNING: Invalid (NaN/inf) likelihood components: {invalid_components}", flush=True)
-        print(f"LL_dict values: {LL_dict}", flush=True)
+        logger.warning(f"Invalid (NaN/inf) likelihood components: {invalid_components}")
+        logger.warning(f"LL_dict values: {LL_dict}")
         # Return -inf for MCMC rejection, but still provide detail dicts if requested
         if returnall:
             return LL_dict, datacount_dict, simcount_dict, poisson_dict
@@ -1135,12 +1136,10 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
         realdata: SALT2mu object containing real data results
         DISTRIBUTION_PARAMETERS, PARAM_TO_SALT2MU: Parameter mapping dictionaries
     """
-    if config.debug:
-        print(f"Current PID is {os.getpid()}")
+    logger.debug(f"Current PID is {os.getpid()}")
 
     # Generate PDF for given theta parameters
-    if config.debug:
-        print("writing PDF", flush=True)
+    logger.debug("writing PDF")
 
     theta_dic = thetaconverter(theta)
 
@@ -1148,17 +1147,13 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
     connection.next_iter(theta_dic, config)
 
     if connection.maxprob > 1.001:
-        if config.debug:
-            print(
-                connection.maxprob,
-                "MAXPROB parameter greater than 1! Coming up against the bounding function! Returning -np.inf to account, caught right after connection",
-                flush=True,
-            )
+        logger.debug(
+            f"{connection.maxprob} MAXPROB parameter greater than 1! Coming up against the bounding function! Returning -np.inf to account, caught right after connection"
+        )
         return -np.inf
 
     # ANALYSIS returns c, highres, lowres, rms
-    if config.debug:
-        print("Right before calculation", flush=True)
+    logger.debug("Right before calculation")
     bindf = connection.bindf.dropna()  # THIS IS THE PANDAS DATAFRAME OF THE OUTPUT FROM SALT2mu
     sim_vals = dffixer(bindf, "ANALYSIS", False)
 
@@ -1186,8 +1181,7 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
     #         connections[newcon] = tc
     #         return log_likelihood(theta, connection=tc)
 
-    if config.debug:
-        print("Right before calling LL Creator", flush=True)
+    logger.debug("Right before calling LL Creator")
 
     out_result = LL_Creator(realdata, connection, inparr, returnall=returnall)
     # print(
@@ -1226,25 +1220,20 @@ def log_prior(theta):
     """
     thetadict = thetaconverter(theta)
     plist = pconv(config.inp_params, config.paramshapesdict, config.splitdict)
-    if config.debug:
-        print("plist", plist)
+    logger.debug(f"plist: {plist}")
     tlist = False  # if all parameters are good, this remains false
     for key in thetadict.keys():
-        if config.debug:
-            print("key", key)
+        logger.debug(f"key: {key}")
         temp_ps = thetawriter(
             theta, key
         )  # I hate this but it works. Creates expanded list for this parameter
-        if config.debug:
-            print("temp_ps", temp_ps)
+        logger.debug(f"temp_ps: {temp_ps}")
         plist_n = thetawriter(theta, key, names=plist)
         for t in range(len(temp_ps)):  # then goes through
-            if config.debug:
-                print("plist name", plist_n[t])
+            logger.debug(f"plist name: {plist_n[t]}")
             lowb = config.parameter_initialization[plist_n[t]][3][0]
             highb = config.parameter_initialization[plist_n[t]][3][1]
-            if config.debug:
-                print(lowb, temp_ps[t], highb)
+            logger.debug(f"{lowb} < {temp_ps[t]} < {highb}")
             if not lowb < temp_ps[t] < highb:  # and compares to valid boundaries.
                 tlist = True
     if tlist:
@@ -1311,15 +1300,13 @@ def init_connections(nwalkers: int, DEBUG=False):
     """
     connections = []
     if DEBUG:
-        print("we are in debug mode now")
+        logger.debug("we are in debug mode now")
         nwalkers = 1
     for i in range(nwalkers):
-        if DEBUG:
-            print(f"generated {i} walker.", flush=True)
+        logger.debug(f"generated {i} walker.")
         _, tc = init_connection(i, real=False, debug=DEBUG)
         connections.append(tc)
-    if DEBUG:
-        print("Done initialising walkers")
+    logger.debug("Done initialising walkers")
     return connections
     # END init_connections
 
@@ -1352,8 +1339,7 @@ def log_probability(theta):
     """
     lp = log_prior(theta)
     if not np.isfinite(lp):
-        if _worker_debug:
-            print("WARNING! We returned -inf from small parameters!", flush=True)
+        logger.debug("WARNING! We returned -inf from small parameters!")
         return -np.inf
     return lp + log_likelihood(_worker_realdata, _worker_connection, theta)
 
@@ -1403,8 +1389,7 @@ def MCMC(
     )
     backend = emcee.backends.HDFBackend(chain_filename)
     backend.reset(nwalkers, ndim)
-    if debug:
-        print(f"Chain storage initialized: {chain_filename}")
+    logger.debug(f"Chain storage initialized: {chain_filename}")
 
     # Track autocorrelation time history
     autocorr_history = np.empty(max_iterations // convergence_check_interval)
@@ -1414,12 +1399,13 @@ def MCMC(
     with Pool(nwalkers, initializer=_init_worker, initargs=(config, realdata, debug)) as pool:
         sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, backend=backend)
 
-        if debug:
-            print(f"Starting MCMC with {cpu_count()} CPUs, {nwalkers} walkers, {ndim} dimensions")
-            print(
-                f"Max iterations: {max_iterations}, convergence check every {convergence_check_interval} steps"
-            )
-            print("=" * 60, flush=True)
+        logger.debug(
+            f"Starting MCMC with {cpu_count()} CPUs, {nwalkers} walkers, {ndim} dimensions"
+        )
+        logger.debug(
+            f"Max iterations: {max_iterations}, convergence check every {convergence_check_interval} steps"
+        )
+        logger.debug("=" * 60)
 
         # Run with convergence monitoring
         for sample in sampler.sample(pos, iterations=max_iterations, progress=True):
@@ -1440,34 +1426,30 @@ def MCMC(
                 converged = np.all(tau * 100 < sampler.iteration)
                 converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
 
-                if debug:
-                    print(f"\nIteration {sampler.iteration}:")
-                    print(f"  Mean tau: {np.mean(tau):.1f}")
-                    print(f"  Min tau:  {np.min(tau):.1f}")
-                    print(f"  Max tau:  {np.max(tau):.1f}")
-                    print(f"  Chain/tau ratio: {sampler.iteration / np.max(tau):.1f} (need > 100)")
-                    if np.isfinite(old_tau).all():
-                        tau_change = np.max(np.abs(old_tau - tau) / tau) * 100
-                        print(f"  Tau change: {tau_change:.2f}% (need < 1%)", flush=True)
+                logger.debug(f"\nIteration {sampler.iteration}:")
+                logger.debug(f"  Mean tau: {np.mean(tau):.1f}")
+                logger.debug(f"  Min tau:  {np.min(tau):.1f}")
+                logger.debug(f"  Max tau:  {np.max(tau):.1f}")
+                logger.debug(
+                    f"  Chain/tau ratio: {sampler.iteration / np.max(tau):.1f} (need > 100)"
+                )
+                if np.isfinite(old_tau).all():
+                    tau_change = np.max(np.abs(old_tau - tau) / tau) * 100
+                    logger.debug(f"  Tau change: {tau_change:.2f}% (need < 1%)")
 
                 if converged:
-                    if debug:
-                        print("\n" + "=" * 60)
-                        print("CONVERGENCE ACHIEVED!")
-                        print(f"  Final iteration: {sampler.iteration}")
-                        print(f"  Final mean tau: {np.mean(tau):.1f}")
-                        print("=" * 60)
+                    logger.debug("\n" + "=" * 60)
+                    logger.debug("CONVERGENCE ACHIEVED!")
+                    logger.debug(f"  Final iteration: {sampler.iteration}")
+                    logger.debug(f"  Final mean tau: {np.mean(tau):.1f}")
+                    logger.debug("=" * 60)
                     break
 
                 old_tau = tau
 
             except emcee.autocorr.AutocorrError:
                 # Chain too short for reliable tau estimate
-                if debug:
-                    print(
-                        f"\nIteration {sampler.iteration}: Chain too short for tau estimate",
-                        flush=True,
-                    )
+                logger.debug(f"\nIteration {sampler.iteration}: Chain too short for tau estimate")
 
         # Save autocorrelation history
         autocorr_filename = (
@@ -1477,28 +1459,24 @@ def MCMC(
             + "-autocorr.npz"
         )
         np.savez(autocorr_filename, autocorr=autocorr_history[:autocorr_index])
-        if debug:
-            print(f"Autocorrelation history saved to: {autocorr_filename}")
+        logger.debug(f"Autocorrelation history saved to: {autocorr_filename}")
 
         # Report final statistics
-        if debug:
-            print("\n" + "=" * 60)
-            print("MCMC COMPLETE")
-            print("=" * 60)
+        logger.debug("\n" + "=" * 60)
+        logger.debug("MCMC COMPLETE")
+        logger.debug("=" * 60)
         try:
             tau = sampler.get_autocorr_time()
             burnin = int(2 * np.max(tau))
             thin = int(0.5 * np.min(tau))
-            if debug:
-                print(f"Final autocorrelation time: {tau}")
-                print(f"Recommended burn-in: {burnin} steps")
-                print(f"Recommended thinning: {thin} steps")
-                print(f"Effective samples: ~{sampler.iteration * nwalkers / np.mean(tau):.0f}")
+            logger.debug(f"Final autocorrelation time: {tau}")
+            logger.debug(f"Recommended burn-in: {burnin} steps")
+            logger.debug(f"Recommended thinning: {thin} steps")
+            logger.debug(f"Effective samples: ~{sampler.iteration * nwalkers / np.mean(tau):.0f}")
 
             # Get flattened samples with burn-in and thinning applied
             flat_samples = sampler.get_chain(discard=burnin, thin=thin, flat=True)
-            if debug:
-                print(f"Shape of thinned samples: {flat_samples.shape}")
+            logger.debug(f"Shape of thinned samples: {flat_samples.shape}")
 
             # Save thinned samples for convenience
             thinned_filename = (
@@ -1508,13 +1486,12 @@ def MCMC(
                 + "-samples_thinned.npz"
             )
             np.savez(thinned_filename, samples=flat_samples, tau=tau, burnin=burnin, thin=thin)
-            if debug:
-                print(f"Thinned samples saved to: {thinned_filename}")
+            logger.debug(f"Thinned samples saved to: {thinned_filename}")
 
         except emcee.autocorr.AutocorrError:
-            print("WARNING: Could not compute final autocorrelation time.")
-            print("Chain may be too short for reliable estimates.")
-            print("Consider running longer or checking for convergence issues.")
+            logger.warning("Could not compute final autocorrelation time.")
+            logger.warning("Chain may be too short for reliable estimates.")
+            logger.warning("Consider running longer or checking for convergence issues.")
 
     return sampler
     # END MCMC
@@ -1527,10 +1504,14 @@ def MCMC(
 if __name__ == "__main__":
     # Parse arguments and load configuration
     args = get_args()
+
+    # Set up logging before loading config
+    DEBUG = args.DEBUG or args.test_run
+    logger = setup_logging(debug=DEBUG)
+
     # Set module-level config (replaces 20+ individual globals)
     config = load_config(args.CONFIG, args)
 
-    DEBUG = config.debug or config.test_run
     # 1. Initialize real data first
     realdata = init_dust2dust(config, debug=DEBUG)
 
@@ -1550,19 +1531,18 @@ if __name__ == "__main__":
     if config.test_run:
         # For test run, initialize worker state directly and call log_probability
         _init_worker(config, realdata, debug=DEBUG)
-        print(log_probability(config.params))
+        logger.info(f"Test run result: {log_probability(config.params)}")
         sys.exit(0)
 
     # 3. Run MCMC with convergence monitoring
     # Initialize MCMC
-    if DEBUG:
-        print("\n" + "=" * 60)
-        print("Starting MCMC sampling...")
-        print(f"  Walkers: {nwalkers}")
-        print(f"  Dimensions: {ndim}")
-        print(f"  Parameters: {', '.join(config.inp_params)}")
-        print("=" * 60 + "\n")
+    logger.debug("\n" + "=" * 60)
+    logger.debug("Starting MCMC sampling...")
+    logger.debug(f"  Walkers: {nwalkers}")
+    logger.debug(f"  Dimensions: {ndim}")
+    logger.debug(f"  Parameters: {', '.join(config.inp_params)}")
+    logger.debug("=" * 60 + "\n")
     sampler = MCMC(config, pos, nwalkers, ndim, realdata, debug=DEBUG)
 
-    print("DUST2DUST complete.")
+    logger.info("DUST2DUST complete.")
 # end:
