@@ -61,6 +61,7 @@ import numpy as np
 import yaml
 
 from dust2dusty.logging import get_logger
+from dust2dusty.salt2mu import SALT2mu
 
 JOBNAME_SALT2mu = "SALT2mu.exe"  # public default code
 ncbins = 6
@@ -395,12 +396,6 @@ def get_args():
     )
 
     parser.add_argument(
-        "--DOPLOT",
-        action="store_true",
-        help="Create corner and chain plots from existing chains (requires --CHAINS)",
-    )
-
-    parser.add_argument(
         "--CMD_DATA",
         type=str,
         default=None,
@@ -446,9 +441,9 @@ def thetaconverter(theta):
     """
     thetadict = {}
     extparams = pconv(
-        config.inp_params, config.paramshapesdict, config.splitdict
+        _CONFIG.inp_params, _CONFIG.paramshapesdict, _CONFIG.splitdict
     )  # expanded list of all variables. len is ndim.
-    for p in config.inp_params:
+    for p in _CONFIG.inp_params:
         thetalist = []
         for n, ep in enumerate(extparams):
             if p in ep:  # for instance, if 'c' is in 'c_l', then this records that position.
@@ -656,8 +651,8 @@ def dffixer(df, RET, ifdata):
     x1pops = []
     rmspops = []
 
-    dflow = df.loc[df[f"ibin_{config.splitparam}"] == 0]
-    dfhigh = df.loc[df[f"ibin_{config.splitparam}"] == 1]
+    dflow = df.loc[df[f"ibin_{_CONFIG.splitparam}"] == 0]
+    dfhigh = df.loc[df[f"ibin_{_CONFIG.splitparam}"] == 1]
 
     lowNEVT = dflow.NEVT.values
     highNEVT = dfhigh.NEVT.values
@@ -701,7 +696,7 @@ def dffixer(df, RET, ifdata):
     # END dffixer
 
 
-def LL_Creator(realdata, sim, inparr, returnall=False, RMS_weight=1):
+def LL_Creator(inparr, returnall=False, RMS_weight=1):
     """
     Calculate log-likelihood by comparing data and simulation observables.
 
@@ -744,13 +739,24 @@ def LL_Creator(realdata, sim, inparr, returnall=False, RMS_weight=1):
     # ========== Parameter likelihood terms ==========
     # Beta (color-luminosity relation)
     logger.debug(
-        f"real beta, sim beta, real beta error: {realdata.beta}, {sim.beta}, {realdata.betaerr}"
+        f"real beta, sim beta, real beta error: {_WORKER_REALDATA.beta}, {_WORKER_SALT2MU_CONNECTION.beta}, {_WORKER_REALDATA.betaerr}"
     )
 
-    LL_dict["beta"] = -0.5 * ((realdata.beta - sim.beta) / realdata.betaerr) ** 2
+    LL_dict["beta"] = (
+        -0.5
+        * ((_WORKER_REALDATA.beta - _WORKER_SALT2MU_CONNECTION.beta) / _WORKER_REALDATA.betaerr)
+        ** 2
+    )
 
     # Intrinsic scatter
-    LL_dict["sigint"] = -0.5 * ((realdata.sigint - sim.sigint) / realdata.siginterr) ** 2
+    LL_dict["sigint"] = (
+        -0.5
+        * (
+            (_WORKER_REALDATA.sigint - _WORKER_SALT2MU_CONNECTION.sigint)
+            / _WORKER_REALDATA.siginterr
+        )
+        ** 2
+    )
 
     # ========== Observable distributions ==========
     # Get event counts for error calculations
@@ -889,7 +895,7 @@ def subprocess_to_snana(OUTDIR, snana_mapping):
 
 
 # =======================================================
-################### CONNECTIONS #######################
+################### SALT2mu_CONNECTIONS #######################
 # =======================================================
 
 
@@ -983,7 +989,7 @@ def init_connection(config, index, real=True, debug=False):
 
     realdataout = f"{config.outdir}{directory}/{index}_SUBPROCESS_REALDATA_OUT.DAT"
     Path(realdataout).touch()
-    simdataout = f"{config.outdir}{directory}/{index}_SUBROCESS_SIM_OUT.DAT"
+    simdataout = f"{config.outdir}{directory}/{index}_SUBPROCESS_SIM_OUT.DAT"
     Path(simdataout).touch()
     mapsout = f"{config.outdir}{directory}/{index}_PYTHONCROSSTALK_OUT.DAT"
     Path(mapsout).touch()
@@ -993,7 +999,7 @@ def init_connection(config, index, real=True, debug=False):
     Path(subprocess_log_sim).touch()
 
     # Generate output table specification (color bins x split parameter bins)
-    arg_outtable = f"'c(6,-0.2:0.25)*{Config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
+    arg_outtable = f"'c(6,-0.2:0.25)*{config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
 
     # Generate GENPDF variable names from input parameters
     GENPDF_NAMES = generate_genpdf_varnames(config.inp_params, config.splitparam)
@@ -1008,7 +1014,7 @@ def init_connection(config, index, real=True, debug=False):
         )
         if OPTMASK < 4:
             cmd += f" SUBPROCESS_OPTMASK={OPTMASK}"
-        realdata = salt2mu.SALT2mu(
+        realdata = SALT2mu(
             cmd,
             config.outdir + "NOTHING.DAT",
             realdataout,
@@ -1021,11 +1027,11 @@ def init_connection(config, index, real=True, debug=False):
             f"SUBPROCESS_VARNAMES_GENPDF={GENPDF_NAMES} "
             f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} "
             f"SUBPROCESS_OPTMASK={OPTMASK} "
-            f"SUBPROCESS_SIMREF_FILE={config.simref_file} "
+            f"SUBPROCESS_SIMREF_FILE={_CONFIG.simref_file} "
             f"debug_flag=930"
         )
 
-    connection = salt2mu.SALT2mu(cmd, mapsout, simdataout, subprocess_log_sim, debug=debug)
+    connection = SALT2mu(cmd, mapsout, simdataout, subprocess_log_sim, debug=debug)
 
     return realdata, connection
     # END init_connection
@@ -1070,7 +1076,7 @@ def normhisttodata(datacount, simcount):
 # =======================================================
 
 
-def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: bool = False):
+def log_likelihood(theta, returnall: bool = False, debug: bool = False):
     """
     Calculate log-likelihood for proposed parameter values.
 
@@ -1114,23 +1120,25 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
     # Generate PDF for given theta parameters
     logger.debug("writing PDF")
 
-    theta_dic = thetaconverter(theta)
-
+    theta_index_dic = thetaconverter(theta)
+    logger.debug(f"theta = {theta}, theta_dic={theta_index_dic}")
     # Run SALT2mu with these PDFs
-    connection.next_iter(theta_dic, config)
+    _WORKER_SALT2MU_CONNECTION.next_iter(theta, theta_index_dic, _CONFIG)
 
-    if connection.maxprob > 1.001:
+    if _WORKER_SALT2MU_CONNECTION.maxprob > 1.001:
         logger.debug(
-            f"{connection.maxprob} MAXPROB parameter greater than 1! Coming up against the bounding function! Returning -np.inf to account, caught right after connection"
+            f"{_WORKER_SALT2MU_CONNECTION.maxprob} MAXPROB parameter greater than 1! Coming up against the bounding function! Returning -np.inf to account, caught right after connection"
         )
         return -np.inf
 
     # ANALYSIS returns c, highres, lowres, rms
     logger.debug("Right before calculation")
-    bindf = connection.bindf.dropna()  # THIS IS THE PANDAS DATAFRAME OF THE OUTPUT FROM SALT2mu
+    bindf = (
+        _WORKER_SALT2MU_CONNECTION.bindf.dropna()
+    )  # THIS IS THE PANDAS DATAFRAME OF THE OUTPUT FROM SALT2mu
     sim_vals = dffixer(bindf, "ANALYSIS", False)
 
-    realbindf = realdata.bindf.dropna()  # same for the real data (was a global variable)
+    realbindf = _WORKER_REALDATA.bindf.dropna()  # same for the real data (was a global variable)
     real_vals = dffixer(realbindf, "ANALYSIS", True)
 
     # Build dictionary pairing data and simulation values
@@ -1145,7 +1153,7 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
     #         print("WARNING! we landed in a Broken Pipe error")
     #         quit()
     #     else:
-    #         print("WARNING! Slurm Broken Pipe Error!")  # REGENERATE THE CONNECTION
+    #         print("WARNING! Slurm Broken Pipe Error!")  # REGENERATE THE SALT2mu_CONNECTION
     #         print("before regenerating")
     #         newcon = (
     #             current_process()._identity[0] - 1
@@ -1156,7 +1164,7 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
 
     logger.debug("Right before calling LL Creator")
 
-    out_result = LL_Creator(realdata, connection, inparr, returnall=returnall)
+    out_result = LL_Creator(inparr, returnall=returnall)
     # print(
     #     "for ",
     #     pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT),
@@ -1165,7 +1173,7 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
     #     "we found an LL of",
     #     out_result, flush=True
     # )
-    connection.iter += 1  # tick up iteration by one
+    _WORKER_SALT2MU_CONNECTION.iter += 1  # tick up iteration by one
     return out_result
     # END log_likelihood
 
@@ -1192,7 +1200,7 @@ def log_prior(theta):
                parameter_initialization, and debug flag
     """
     thetadict = thetaconverter(theta)
-    plist = pconv(config.inp_params, config.paramshapesdict, config.splitdict)
+    plist = pconv(_CONFIG.inp_params, _CONFIG.paramshapesdict, _CONFIG.splitdict)
     logger.debug(f"plist: {plist}")
     tlist = False  # if all parameters are good, this remains false
     for key in thetadict.keys():
@@ -1204,8 +1212,8 @@ def log_prior(theta):
         plist_n = thetawriter(theta, key, names=plist)
         for t in range(len(temp_ps)):  # then goes through
             logger.debug(f"plist name: {plist_n[t]}")
-            lowb = config.parameter_initialization[plist_n[t]][3][0]
-            highb = config.parameter_initialization[plist_n[t]][3][1]
+            lowb = _CONFIG.parameter_initialization[plist_n[t]][3][0]
+            highb = _CONFIG.parameter_initialization[plist_n[t]][3][1]
             logger.debug(f"{lowb} < {temp_ps[t]} < {highb}")
             if not lowb < temp_ps[t] < highb:  # and compares to valid boundaries.
                 tlist = True
@@ -1216,7 +1224,7 @@ def log_prior(theta):
     # END log_prior
 
 
-def init_dust2dust(debug=False):
+def init_dust2dust(config, debug=False):
     """
     Initialize DUST2DUST by running SALT2mu on real data.
 
@@ -1252,9 +1260,11 @@ def init_dust2dust(debug=False):
 
 
 # Module-level variables for multiprocessing workers
-_worker_realdata = None
-_worker_connection = None
-_worker_debug = False
+_WORKER_REALDATA = None
+_WORKER_SALT2MU_CONNECTION = None
+_WORKER_DEBUGFLAG = False
+_WORKER_INDEX = None
+_CONFIG = None
 
 
 def _init_worker(config, realdata, debug):
@@ -1264,14 +1274,16 @@ def _init_worker(config, realdata, debug):
     Sets up worker-local state by storing the appropriate connection
     for this worker based on its process identity.
     """
-    global _worker_realdata, _worker_connection, _worker_debug
-    _worker_realdata = realdata
-    _worker_debug = debug
+    global _WORKER_REALDATA, _WORKER_SALT2MU_CONNECTION, _WORKER_DEBUGFLAG, _CONFIG, _WORKER_INDEX
+    _WORKER_REALDATA = realdata
+    _WORKER_DEBUGFLAG = debug
+    _CONFIG = config
 
-    index = 999
-    if not debug:
-        index = current_process()._identity[0] - 1
-    _, _worker_connection = init_connection(config, index, real=False, debug=debug)
+    if debug:
+        _WORKER_INDEX = 999
+    else:
+        _WORKER_INDEX = current_process()._identity[0] - 1
+    _, _WORKER_SALT2MU_CONNECTION = init_connection(_CONFIG, _WORKER_INDEX, real=False, debug=debug)
 
 
 def log_probability(theta):
@@ -1285,7 +1297,7 @@ def log_probability(theta):
     if not np.isfinite(lp):
         logger.debug("WARNING! We returned -inf from small parameters!")
         return -np.inf
-    return lp + log_likelihood(_worker_realdata, _worker_connection, theta)
+    return lp + log_likelihood(theta)
 
 
 def MCMC(

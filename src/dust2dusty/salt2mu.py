@@ -118,7 +118,7 @@ class SALT2mu:
             self.getData()  # calls getData
         else:
             self.process = subprocess.Popen(
-                command,
+                self.command,
                 shell=True,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -150,27 +150,31 @@ class SALT2mu:
 
     def next_iter(
         self,
-        theta_dic,
+        theta,
+        theta_index_dic,
         config,
     ):  # ticks up iteration by one
         self.iter += 1
         self.write_iterbegin()
 
-        for par_key in config.inp_params:
-            bounds = (theta_dic[par_key][0], theta_dic[par_key][-1] + 1)
+        for key in config.inp_params:
+            key_parameter_values = theta[theta_index_dic[key][0] : theta_index_dic[key][-1] + 1]
 
             arr = []
-            if par_key not in ["beta", "alpha"]:
-                arr.append(config.DEFAULT_PARAMETER_RANGES[par_key])
-                if par_key in config.splitdict.keys():
-                    for s in config.splitdict[par_key].keys():
+            if key not in ["beta", "alpha"]:
+                arr.append(config.DEFAULT_PARAMETER_RANGES[key])
+                if key in config.splitdict.keys():
+                    for s in config.splitdict[key].keys():
                         arr.append(eval(config.splitarr[s]))
+            self.logger.debug(f"{key}")
+            self.logger.debug(f"{config.paramshapesdict[key]}")
+            self.logger.debug(f"{config.splitdict}")
 
             self.write_generic_PDF(
-                par_key,
+                key,
                 config.splitdict,
-                bounds,
-                config.paramshapesdict[par_key],
+                key_parameter_values,
+                config.paramshapesdict[key],
                 config.DISTRIBUTION_PARAMETERS,
                 config.PARAM_TO_SALT2MU,
                 arr,
@@ -180,7 +184,7 @@ class SALT2mu:
         self.write_iterend()
 
         # Launch SALT2mu on new dist and wait for done
-        self.process.stdin.write("%d\n" % self.iter)
+        self.process.stdin.write(f"{self.iter}\n")
         self.process.stdin.flush()
         self.wait_until_text_in_output(self.ready_enditer)
 

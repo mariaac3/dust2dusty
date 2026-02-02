@@ -8,9 +8,9 @@ version = "0.1.0"
 description = "Supernova Cosmology Analysis with MCMC - fitting intrinsic scatter distributions"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.9"
+requires-python = ">=3.7"
 authors = [
-    {name = "BLC56"}
+    {name = "B. Popovic, D. Brout, B. Carreres, M. Acevedo"}
 ]
 keywords = [
     "supernova",
