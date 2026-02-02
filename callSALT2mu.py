@@ -110,11 +110,11 @@ class SALT2mu:
             - If realdata=True: Runs SALT2mu via os.system and calls getData()
             - If realdata=False: Launches SALT2mu.exe subprocess
         """
-        print("COMMAND:", command % (mapsout, SALT2muout, log), flush=True)
 
         self.logger = setup_custom_logger(
             "walker_" + os.path.basename(mapsout).split("_")[0], debug=debug
         )
+
         self.iter = -1
         self.debug = debug  # Boolean. Default False.
         self.ready_enditer = "Enter expected ITERATION number"
@@ -138,16 +138,23 @@ class SALT2mu:
         self.logger.info("Command being run: " + self.command)
         self.data = False
 
-        self.process = subprocess.Popen(
-            command, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1
-        )
-        self.wait_until_text_in_output(self.ready_enditer)
-
         if realdata:  # this is awful )
             self.logger.info("Running realdata=True")
+            subprocess.run(
+                self.command,
+                shell=True,
+            )
             self.getData()  # calls getData
-            self.quit()
-        # END __init__
+        else:
+            self.process = subprocess.Popen(
+                command,
+                shell=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+            self.wait_until_text_in_output(self.ready_enditer)
 
     def quit(self):  # sets iteration input to -1, which causes a quit somewhere
         self.process.stdin.write("-1\n")
@@ -161,7 +168,10 @@ class SALT2mu:
 
         # Wait for specific output using iter()
         for line in iter(self.process.stdout.readline, ""):
+            if self.debug:
+                print(line, flush=True)
             if expected_text in line:
+                print("found it", flush=True)
                 break
 
             if time.time() - start > timeout:

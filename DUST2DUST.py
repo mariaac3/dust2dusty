@@ -54,7 +54,7 @@ import argparse
 import itertools
 import logging
 from dataclasses import dataclass, field
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool, cpu_count, current_process
 from typing import Any, ClassVar, Dict, List, Optional
 
 import emcee
@@ -1002,9 +1002,7 @@ def init_connection(config, index, real=True, debug=False):
 
     OPTMASK = 4
     directory = "parallel"
-    if config.debug:
-        OPTMASK = 1
-    elif config.test_run:
+    if debug:
         OPTMASK = 1
 
     realdataout = f"{config.outdir}{directory}/{index}_SUBPROCESS_REALDATA_OUT.DAT"
@@ -1019,13 +1017,14 @@ def init_connection(config, index, real=True, debug=False):
     Path(subprocess_log_sim).touch()
 
     # Generate output table specification (color bins x split parameter bins)
-    arg_outtable = f"'c(6,-0.2:0.25)*{config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
+    arg_outtable = f"'c(6,-0.2:0.25)*{Config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
 
     # Generate GENPDF variable names from input parameters
     GENPDF_NAMES = generate_genpdf_varnames(config.inp_params, config.splitparam)
 
     realdata = None
     cmd_exe = "{0} {1} SUBPROCESS_FILES=%s,%s,%s ".format
+
     if real:
         cmd = (
             cmd_exe(JOBNAME_SALT2mu, config.data_input)
@@ -1039,7 +1038,7 @@ def init_connection(config, index, real=True, debug=False):
             realdataout,
             subprocess_log_data,
             realdata=True,
-            debug=config.debug,
+            debug=debug,
         )
     else:
         cmd = cmd_exe(JOBNAME_SALT2mu, config.sim_input) + (
@@ -1050,9 +1049,7 @@ def init_connection(config, index, real=True, debug=False):
             f"debug_flag=930"
         )
 
-    connection = callSALT2mu.SALT2mu(
-        cmd, mapsout, simdataout, subprocess_log_sim, debug=config.debug
-    )
+    connection = callSALT2mu.SALT2mu(cmd, mapsout, simdataout, subprocess_log_sim, debug=debug)
 
     return realdata, connection
     # END init_connection
@@ -1243,7 +1240,7 @@ def log_prior(theta):
     # END log_prior
 
 
-def init_dust2dust(config, debug=False):
+def init_dust2dust(debug=False):
     """
     Initialize DUST2DUST by running SALT2mu on real data.
 
@@ -1278,39 +1275,6 @@ def init_dust2dust(config, debug=False):
     # END init_dust2dust
 
 
-def init_connections(nwalkers: int, DEBUG=False):
-    """
-    Initialize SALT2mu subprocess connections for all MCMC walkers.
-
-    Creates one SALT2mu connection per walker (or 1 in DEBUG mode).
-    Each connection is a persistent subprocess that can be called repeatedly
-    during MCMC sampling for likelihood evaluations.
-
-    Args:
-        nwalkers: Number of MCMC walkers (connections to create)
-        DEBUG: If True, create only 1 connection for testing (default: False)
-
-    Returns:
-        list: List of SALT2mu connection objects, one per walker (or 1 if DEBUG)
-
-    Side effects:
-        - Launches nwalkers SALT2mu.exe subprocesses (1 if DEBUG)
-        - Creates temporary files for each connection in config.outdir/parallel/
-        - Prints progress messages for each walker initialized
-    """
-    connections = []
-    if DEBUG:
-        logger.debug("we are in debug mode now")
-        nwalkers = 1
-    for i in range(nwalkers):
-        logger.debug(f"generated {i} walker.")
-        _, tc = init_connection(i, real=False, debug=DEBUG)
-        connections.append(tc)
-    logger.debug("Done initialising walkers")
-    return connections
-    # END init_connections
-
-
 # Module-level variables for multiprocessing workers
 _worker_realdata = None
 _worker_connection = None
@@ -1327,7 +1291,11 @@ def _init_worker(config, realdata, debug):
     global _worker_realdata, _worker_connection, _worker_debug
     _worker_realdata = realdata
     _worker_debug = debug
-    _, _worker_connection = init_connection(config, debug=debug)
+
+    index = 999
+    if not debug:
+        index = current_process()._identity[0] - 1
+    _, _worker_connection = init_connection(config, index, real=False, debug=debug)
 
 
 def log_probability(theta):
@@ -1513,7 +1481,7 @@ if __name__ == "__main__":
     config = load_config(args.CONFIG, args)
 
     # 1. Initialize real data first
-    realdata = init_dust2dust(config, debug=DEBUG)
+    realdata = init_dust2dust(debug=DEBUG)
 
     if DEBUG:
         nwalkers = 1
@@ -1531,7 +1499,7 @@ if __name__ == "__main__":
     if config.test_run:
         # For test run, initialize worker state directly and call log_probability
         _init_worker(config, realdata, debug=DEBUG)
-        logger.info(f"Test run result: {log_probability(config.params)}")
+        _worker_connection.quit()
         sys.exit(0)
 
     # 3. Run MCMC with convergence monitoring

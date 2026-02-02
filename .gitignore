@@ -64,6 +64,10 @@ slurm-*.out
 OUT_*.M0DIF
 GENPDF.DAT
 
+# Config files
+*.yaml
+*.YAML
+
 # Temporary files
 *.tmp
 *.temp
