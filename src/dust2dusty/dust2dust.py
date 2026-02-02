@@ -19,7 +19,7 @@ Main workflow:
 
 Key components:
     - Parameter configuration via YAML (distributions, splits, priors)
-    - SALT2mu.exe interface via callSALT2mu module
+    - SALT2mu.exe interface via salt2mu module
     - Likelihood calculation comparing multiple observables
     - Support for parameter splits by mass, redshift, etc.
 
@@ -52,7 +52,6 @@ set_numpy_threads(4)
 
 import argparse
 import itertools
-import logging
 from dataclasses import dataclass, field
 from multiprocessing import Pool, cpu_count, current_process
 from typing import Any, ClassVar, Dict, List, Optional
@@ -61,7 +60,7 @@ import emcee
 import numpy as np
 import yaml
 
-import callSALT2mu
+from dust2dusty.logging import get_logger
 
 JOBNAME_SALT2mu = "SALT2mu.exe"  # public default code
 ncbins = 6
@@ -283,31 +282,8 @@ def create_output_directories(outdir):
     return outdir
 
 
-def setup_logging(debug=False):
-    """
-    Configure logging settings for the main program.
-
-    Sets up basic logging configuration with INFO level (or DEBUG if debug=True)
-    and custom format. Suppresses verbose output from matplotlib and seaborn.
-
-    Args:
-        debug: If True, set logging level to DEBUG (default: False)
-
-    Returns:
-        logging.Logger: Configured logger instance for DUST2DUST
-    """
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(
-        level=level, format="[%(levelname)8s |%(filename)21s:%(lineno)3d]   %(message)s"
-    )
-    logging.getLogger("matplotlib").setLevel(logging.ERROR)
-    logging.getLogger("seaborn").setLevel(logging.ERROR)
-    return logging.getLogger("DUST2DUST")
-    # END setup_logging
-
-
-# Module-level logger (initialized in main)
-logger = logging.getLogger("DUST2DUST")
+# Module-level logger (initialized in main via setup_logging)
+logger = get_logger()
 
 
 def load_config(config_path: str, args: argparse.Namespace) -> Config:
@@ -342,7 +318,7 @@ def load_config(config_path: str, args: argparse.Namespace) -> Config:
 
     # Load YAML file
     try:
-        with open(config_path, "r") as cfgfile:
+        with open(config_path) as cfgfile:
             config_dict = yaml.load(cfgfile, Loader=yaml.FullLoader)
     except yaml.YAMLError as e:
         logger.error(f"Invalid YAML syntax in {config_path}")
@@ -638,7 +614,7 @@ def array_conv(inp, SPLITDICT, SPLITARR):
     arrlist.append(Config.DEFAULT_PARAMETER_RANGES[inp])
     if inp in SPLITDICT.keys():
         for s in SPLITDICT[inp].keys():
-            arrlist.append(eval((SPLITARR[s])))
+            arrlist.append(eval(SPLITARR[s]))
     return arrlist
     # END array_conv
 
@@ -889,7 +865,7 @@ def subprocess_to_snana(OUTDIR, snana_mapping):
         str: 'Done' upon completion
     """
     filein = OUTDIR + "GENPDF.DAT"
-    f = open(filein, "r")
+    f = open(filein)
     lines = f.readlines()
     f.close()
     del lines[0]
@@ -898,7 +874,7 @@ def subprocess_to_snana(OUTDIR, snana_mapping):
     for line in lines:
         f.write(line)
     f.close()
-    f = open(filein, "r")
+    f = open(filein)
     filedata = f.read()
     f.close()
     for i in snana_mapping.keys():
@@ -1032,7 +1008,7 @@ def init_connection(config, index, real=True, debug=False):
         )
         if OPTMASK < 4:
             cmd += f" SUBPROCESS_OPTMASK={OPTMASK}"
-        realdata = callSALT2mu.SALT2mu(
+        realdata = salt2mu.SALT2mu(
             cmd,
             config.outdir + "NOTHING.DAT",
             realdataout,
@@ -1049,7 +1025,7 @@ def init_connection(config, index, real=True, debug=False):
             f"debug_flag=930"
         )
 
-    connection = callSALT2mu.SALT2mu(cmd, mapsout, simdataout, subprocess_log_sim, debug=debug)
+    connection = salt2mu.SALT2mu(cmd, mapsout, simdataout, subprocess_log_sim, debug=debug)
 
     return realdata, connection
     # END init_connection
@@ -1466,51 +1442,10 @@ def MCMC(
 
 
 # =================================================================================================
-###############################
+# CLI Entry Point (for backwards compatibility when running as script)
 # =================================================================================================
 
 if __name__ == "__main__":
-    # Parse arguments and load configuration
-    args = get_args()
+    from dust2dusty.cli import main
 
-    # Set up logging before loading config
-    DEBUG = args.DEBUG or args.test_run
-    logger = setup_logging(debug=DEBUG)
-
-    # Set module-level config (replaces 20+ individual globals)
-    config = load_config(args.CONFIG, args)
-
-    # 1. Initialize real data first
-    realdata = init_dust2dust(debug=DEBUG)
-
-    if DEBUG:
-        nwalkers = 1
-    else:
-        pos, nwalkers, ndim = input_cleaner(
-            config.inp_params,
-            config.paramshapesdict,
-            config.splitdict,
-            config.parameter_initialization,
-            config.PARAMETER_OVERRIDES,
-            walkfactor=3,
-        )
-
-    # 2. Test run (before Pool is created in MCMC)
-    if config.test_run:
-        # For test run, initialize worker state directly and call log_probability
-        _init_worker(config, realdata, debug=DEBUG)
-        _worker_connection.quit()
-        sys.exit(0)
-
-    # 3. Run MCMC with convergence monitoring
-    # Initialize MCMC
-    logger.debug("\n" + "=" * 60)
-    logger.debug("Starting MCMC sampling...")
-    logger.debug(f"  Walkers: {nwalkers}")
-    logger.debug(f"  Dimensions: {ndim}")
-    logger.debug(f"  Parameters: {', '.join(config.inp_params)}")
-    logger.debug("=" * 60 + "\n")
-    sampler = MCMC(config, pos, nwalkers, ndim, realdata, debug=DEBUG)
-
-    logger.info("DUST2DUST complete.")
-# end:
+    sys.exit(main())

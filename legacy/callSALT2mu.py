@@ -26,46 +26,18 @@ Typical workflow:
        e. Parse results from output file
 """
 
-import logging
 import os
 import subprocess
-import sys
 import time
 from io import StringIO
 
 import numpy as np
 import pandas as pd
 
+from dust2dust_logging import get_logger
 
-def setup_custom_logger(name, screen=False, debug=False):
-    """
-    Create custom logger with file and optional screen output.
-
-    Args:
-        name: Logger name (also used for log filename)
-        screen: If True, also log to stdout (default: False)
-
-    Returns:
-        logging.Logger: Configured logger instance
-                        Logs to logs/log_{name}.log with DEBUG level
-    """
-    formatter = logging.Formatter(
-        fmt="%(asctime)s %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    handler = logging.FileHandler(f"logs/log_{name}.log", mode="a+")
-    handler.setFormatter(formatter)
-    screen_handler = logging.StreamHandler(stream=sys.stdout)
-    screen_handler.setFormatter(formatter)
-    logger = logging.getLogger(name)
-    logger.addHandler(handler)
-    if screen:
-        logger.addHandler(screen_handler)
-    logger.setLevel(logging.DEBUG)
-    if not debug:
-        logger.addHandler(logging.NullHandler())
-
-    return logger
-    # END setup_custom_logger
+# Module-level logger (uses shared logging from dust2dust_logging)
+logger = get_logger()
 
 
 class SALT2mu:
@@ -110,10 +82,9 @@ class SALT2mu:
             - If realdata=True: Runs SALT2mu via os.system and calls getData()
             - If realdata=False: Launches SALT2mu.exe subprocess
         """
-
-        self.logger = setup_custom_logger(
-            "walker_" + os.path.basename(mapsout).split("_")[0], debug=debug
-        )
+        # Get walker ID from mapsout filename for walker-specific logging
+        walker_id = os.path.basename(mapsout).split("_")[0]
+        self.logger = setup_walker_logger(walker_id, debug=debug)
 
         self.iter = -1
         self.debug = debug  # Boolean. Default False.
@@ -159,7 +130,7 @@ class SALT2mu:
     def quit(self):  # sets iteration input to -1, which causes a quit somewhere
         self.process.stdin.write("-1\n")
         for stdout_line in iter(self.process.stdout.readline, ""):
-            print(stdout_line)
+            self.logger.info(stdout_line)
         # END quit
         #
 
@@ -168,10 +139,9 @@ class SALT2mu:
 
         # Wait for specific output using iter()
         for line in iter(self.process.stdout.readline, ""):
-            if self.debug:
-                print(line, flush=True)
+            self.logger.debug(line.strip())
             if expected_text in line:
-                print("found it", flush=True)
+                self.logger.debug("found expected text")
                 break
 
             if time.time() - start > timeout:
