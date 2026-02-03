@@ -10,6 +10,62 @@ import os
 import numpy as np
 
 
+def cmd_exe(*args):
+    return "{0} {1} SUBPROCESS_FILES=%s,%s,%s ".format(*args)
+
+
+def init_salt2mu_realdata(config, debug=False):
+    """
+    Initialize DUST2DUST by running SALT2mu on real data.
+
+    Runs SALT2mu on real data to get baseline values for beta, betaerr,
+    sigint, and siginterr that will be compared against in likelihood calculations.
+    This establishes the "truth" values from observed data.
+
+    Args:
+        config: Configuration object
+        debug: If True, use debug connection index (default: False)
+
+    Returns:
+        SALT2mu: Connection object containing real data fit results with attributes:
+                 - beta: Color-luminosity parameter
+                 - betaerr: Uncertainty on beta
+                 - sigint: Intrinsic scatter
+                 - siginterr: Uncertainty on sigint
+                 - bindf: Pandas DataFrame with binned statistics
+    """
+    index = ""
+    directory = "realdata_files"
+
+    if debug:
+        index = "DEBUG"
+    outdir = Path(config.outdir)
+
+    subprocess_log_data = outdir / f"{directory}/{index}_SUBPROCESS_LOG_DATA.STDOUT"
+    subprocess_log_data.touch()
+
+    realdata_out = outdir / f"{directory}/SUBPROCESS_REAL_DATA_OUT.DAT"
+    realdata_out.touch()
+
+    # Generate output table specification (color bins x split parameter bins)
+    arg_outtable = f"'c(6,-0.2:0.25)*{config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
+
+    cmd = cmd_exe(JOBNAME_SALT2mu, config.data_input) + (
+        f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} debug_flag=930"
+    )
+
+    real_data = SALT2mu(
+        cmd,
+        config.outdir + "NOTHING.DAT",
+        realdata_out,
+        subprocess_log_data,
+        is_realdata=True,
+        debug=debug,
+    )
+
+    return real_data.salt2mu_results
+
+
 def set_numpy_threads(n_threads=4):
     """Set number of threads for numpy operations.
 

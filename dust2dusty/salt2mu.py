@@ -64,7 +64,7 @@ class SALT2mu:
         bindf: pandas DataFrame with binned SALT2mu output
     """
 
-    def __init__(self, command, mapsout, SALT2muout, log, realdata=False, debug=False):
+    def __init__(self, command, mapsout, SALT2muout, log, is_realdata=False, debug=False):
         """
         Initialize SALT2mu connection.
 
@@ -109,7 +109,7 @@ class SALT2mu:
         self.logger.info("Command being run: " + self.command)
         self.salt2mu_results = {}
 
-        if realdata:  # this is awful )
+        if is_realdata:  # this is awful )
             self.logger.info("Running realdata=True")
             subprocess.run(
                 self.command,

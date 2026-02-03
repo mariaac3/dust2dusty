@@ -36,11 +36,7 @@ import os
 from collections import defaultdict
 from pathlib import Path
 
-from dust2dusty.utils import (
-    normhisttodata,
-    pconv,
-    set_numpy_threads,
-)
+from dust2dusty.utils import cmd_exe, normhisttodata, pconv, set_numpy_threads
 
 # Call BEFORE importing numpy
 set_numpy_threads(4)
@@ -61,12 +57,13 @@ from dust2dusty.salt2mu import SALT2mu
 JOBNAME_SALT2mu = "SALT2mu.exe"  # SALT2mu executable name
 ncbins = 6  # Number of color bins
 
+
 # Module-level logger
 logger = get_logger()
 
 # Worker-local global variables for multiprocessing
 # These are set by _init_worker() for each Pool worker process
-_WORKER_REALDATA = None  # SALT2mu connection for real data
+_WORKER_REALDATA_SALT2MU_RESULTS = None  # SALT2mu connection for real data
 _WORKER_SALT2MU_CONNECTION = None  # SALT2mu connection for simulation
 _WORKER_DEBUGFLAG = False  # Debug flag for worker process
 _WORKER_INDEX = None  # Worker process index
@@ -302,7 +299,7 @@ def generate_genpdf_varnames(inp_params, splitparam):
     return ",".join(varnames)
 
 
-def init_connection(config, index, real=True, debug=False):
+def init_salt2mu_worker_connection(config, index, debug=False):
     """
     Initialize connection(s) to SALT2mu.exe subprocess(es).
 
@@ -331,20 +328,19 @@ def init_connection(config, index, real=True, debug=False):
         4: Implements randomseed option (default for production)
     """
     OPTMASK = 4
-    directory = "parallel"
+    directory = "worker_files"
     if debug:
         OPTMASK = 1
 
-    realdataout = f"{config.outdir}{directory}/{index}_SUBPROCESS_REALDATA_OUT.DAT"
-    Path(realdataout).touch()
-    simdataout = f"{config.outdir}{directory}/{index}_SUBPROCESS_SIM_OUT.DAT"
-    Path(simdataout).touch()
-    mapsout = f"{config.outdir}{directory}/{index}_PYTHONCROSSTALK_OUT.DAT"
-    Path(mapsout).touch()
-    subprocess_log_data = f"{config.outdir}{directory}/{index}_SUBPROCESS_LOG_DATA.STDOUT"
-    Path(subprocess_log_data).touch()
-    subprocess_log_sim = f"{config.outdir}{directory}/{index}_SUBPROCESS_LOG_SIM.STDOUT"
-    Path(subprocess_log_sim).touch()
+    OUTDIR = Path(config.outdir)
+    sim_data_out = OUTDIR / f"{directory}/{index}_SUBPROCESS_SIM_OUT.DAT"
+    sim_data_out.touch()
+
+    maps_out = OUTDIR / f"{directory}/{index}_PYTHONCROSSTALK_OUT.DAT"
+    maps_out.touch()
+
+    subprocess_log_sim = OUTDIR / f"{directory}/{index}_SUBPROCESS_LOG_SIM.STDOUT"
+    subprocess_log_sim.touch()
 
     # Generate output table specification (color bins x split parameter bins)
     arg_outtable = f"'c(6,-0.2:0.25)*{config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
@@ -352,36 +348,17 @@ def init_connection(config, index, real=True, debug=False):
     # Generate GENPDF variable names from input parameters
     GENPDF_NAMES = generate_genpdf_varnames(config.inp_params, config.splitparam)
 
-    realdata = None
-    cmd_exe = "{0} {1} SUBPROCESS_FILES=%s,%s,%s ".format
+    cmd = cmd_exe(JOBNAME_SALT2mu, config.sim_input) + (
+        f"SUBPROCESS_VARNAMES_GENPDF={GENPDF_NAMES} "
+        f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} "
+        f"SUBPROCESS_OPTMASK={OPTMASK} "
+        f"SUBPROCESS_SIMREF_FILE={config.simref_file} "
+        f"debug_flag=930"
+    )
 
-    if real:
-        cmd = (
-            cmd_exe(JOBNAME_SALT2mu, config.data_input)
-            + f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} debug_flag=930"
-        )
-        if OPTMASK < 4:
-            cmd += f" SUBPROCESS_OPTMASK={OPTMASK}"
-        realdata = SALT2mu(
-            cmd,
-            config.outdir + "NOTHING.DAT",
-            realdataout,
-            subprocess_log_data,
-            realdata=True,
-            debug=debug,
-        )
-    else:
-        cmd = cmd_exe(JOBNAME_SALT2mu, config.sim_input) + (
-            f"SUBPROCESS_VARNAMES_GENPDF={GENPDF_NAMES} "
-            f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} "
-            f"SUBPROCESS_OPTMASK={OPTMASK} "
-            f"SUBPROCESS_SIMREF_FILE={_CONFIG.simref_file} "
-            f"debug_flag=930"
-        )
+    connection = SALT2mu(cmd, mapsout, sim_data_out, subprocess_log_sim, debug=debug)
 
-    connection = SALT2mu(cmd, mapsout, simdataout, subprocess_log_sim, debug=debug)
-
-    return realdata, connection
+    return connection
 
 
 # =============================================================================
@@ -423,19 +400,19 @@ def compute_and_sum_loglikelihoods(inparr, returnall=False, RMS_weight=1):
     # ========== Parameter likelihood terms ==========
     # Beta (color-luminosity relation)
     logger.debug(
-        f"real beta, sim beta, real beta error: {_WORKER_REALDATA.salt2mu_results['beta']}, "
+        f"real beta, sim beta, real beta error: {_WORKER_REALDATA_SALT2MU_RESULTS['beta']}, "
         f"{_WORKER_SALT2MU_CONNECTION.salt2mu_results['beta']}, "
-        f"{_WORKER_REALDATA.salt2mu_results['betaerr']}"
+        f"{_WORKER_REALDATA_SALT2MU_RESULTS['betaerr']}"
     )
 
     ll_dict["beta"] = (
         -0.5
         * (
             (
-                _WORKER_REALDATA.salt2mu_results["beta"]
+                _WORKER_REALDATA_SALT2MU_RESULTS["beta"]
                 - _WORKER_SALT2MU_CONNECTION.salt2mu_results["beta"]
             )
-            / _WORKER_REALDATA.salt2mu_results["betaerr"]
+            / _WORKER_REALDATA_SALT2MU_RESULTS["betaerr"]
         )
         ** 2
     )
@@ -445,10 +422,10 @@ def compute_and_sum_loglikelihoods(inparr, returnall=False, RMS_weight=1):
         -0.5
         * (
             (
-                _WORKER_REALDATA.salt2mu_results["sigint"]
+                _WORKER_REALDATA_SALT2MU_RESULTS["sigint"]
                 - _WORKER_SALT2MU_CONNECTION.salt2mu_results["sigint"]
             )
-            / _WORKER_REALDATA.salt2mu_results["siginterr"]
+            / _WORKER_REALDATA_SALT2MU_RESULTS["siginterr"]
         )
         ** 2
     )
@@ -579,7 +556,7 @@ def log_likelihood(theta, returnall: bool = False, debug: bool = False):
     bindf = _WORKER_SALT2MU_CONNECTION.salt2mu_results["bindf"].dropna()
     sim_vals = dffixer(bindf, "ANALYSIS", False)
 
-    realbindf = _WORKER_REALDATA.salt2mu_results["bindf"].dropna()
+    realbindf = _WORKER_REALDATA_SALT2MU_RESULTS["bindf"].dropna()
     real_vals = dffixer(realbindf, "ANALYSIS", True)
 
     # Build dictionary pairing data and simulation values
@@ -661,7 +638,7 @@ def log_probability(theta):
 # =============================================================================
 
 
-def _init_worker(config, realdata, debug):
+def _init_worker(config, realdata_salt2mu_results, debug=False):
     """
     Initializer function for Pool workers.
 
@@ -674,8 +651,12 @@ def _init_worker(config, realdata, debug):
         realdata: SALT2mu connection for real data (shared across workers)
         debug: Debug flag
     """
-    global _WORKER_REALDATA, _WORKER_SALT2MU_CONNECTION, _WORKER_DEBUGFLAG, _CONFIG, _WORKER_INDEX
-    _WORKER_REALDATA = realdata
+    global \
+        _WORKER_REALDATA_SALT2MU_RESULTS, \
+        _WORKER_SALT2MU_CONNECTION, \
+        _WORKER_DEBUGFLAG, \
+        _CONFIG, \
+        _WORKER_INDEX
     _WORKER_DEBUGFLAG = debug
     _CONFIG = config
 
@@ -683,35 +664,10 @@ def _init_worker(config, realdata, debug):
         _WORKER_INDEX = 999
     else:
         _WORKER_INDEX = current_process()._identity[0] - 1
-    _, _WORKER_SALT2MU_CONNECTION = init_connection(_CONFIG, _WORKER_INDEX, real=False, debug=debug)
-
-
-def init_dust2dust(config, debug=False):
-    """
-    Initialize DUST2DUST by running SALT2mu on real data.
-
-    Runs SALT2mu on real data to get baseline values for beta, betaerr,
-    sigint, and siginterr that will be compared against in likelihood calculations.
-    This establishes the "truth" values from observed data.
-
-    Args:
-        config: Configuration object
-        debug: If True, use debug connection index (default: False)
-
-    Returns:
-        SALT2mu: Connection object containing real data fit results with attributes:
-                 - beta: Color-luminosity parameter
-                 - betaerr: Uncertainty on beta
-                 - sigint: Intrinsic scatter
-                 - siginterr: Uncertainty on sigint
-                 - bindf: Pandas DataFrame with binned statistics
-    """
-    index = 0
-    if debug:
-        index = 299
-
-    realdata, _ = init_connection(config, index, real=True, debug=debug)
-    return realdata
+    _WORKER_SALT2MU_CONNECTION = init_salt2mu_worker_connection(
+        _CONFIG, _WORKER_INDEX, real=False, debug=debug
+    )
+    _WORKER_REALDATA_SALT2MU_RESULTS = realdata_salt2mu_results
 
 
 # =============================================================================

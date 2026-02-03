@@ -371,10 +371,9 @@ def main():
     from dust2dusty.dust2dust import (
         MCMC,
         _init_worker,
-        init_dust2dust,
         log_probability,
     )
-    from dust2dusty.utils import input_cleaner
+    from dust2dusty.utils import init_salt2mu_realdata, input_cleaner
 
     # Parse arguments and load configuration
     args = get_args()
@@ -388,7 +387,7 @@ def main():
     config = load_config(args.CONFIG, args, logger)
 
     # Initialize real data
-    realdata = init_dust2dust(config, debug=DEBUG)
+    realdata_salt2mu_results = init_salt2mu_realdata(config, debug=DEBUG)
 
     if DEBUG:
         nwalkers = 1
@@ -405,7 +404,7 @@ def main():
 
     # Test run mode - single likelihood evaluation
     if config.test_run:
-        _init_worker(config, realdata, debug=DEBUG)
+        _init_worker(config, realdata_salt2mu_results, debug=DEBUG)
         logger.info(f"Test run result: {log_probability(config.params)}")
         sys.exit(0)
 
