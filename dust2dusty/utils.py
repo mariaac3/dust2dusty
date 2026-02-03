@@ -1,38 +1,66 @@
 """
-Utility functions for DUST2DUST that do not depend on global state.
+Utility functions for DUST2DUSTY that do not depend on global state.
 
 These are pure functions that only use their input parameters,
 making them easily testable and reusable.
 """
 
+from __future__ import annotations
+
+import itertools
 import os
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from dust2dusty.cli import Config
+
+from dust2dusty.salt2mu import SALT2mu
+
+# Constants
+JOBNAME_SALT2MU: str = "SALT2mu.exe"
 
 
-def cmd_exe(*args):
-    return "{0} {1} SUBPROCESS_FILES=%s,%s,%s ".format(*args)
-
-
-def init_salt2mu_realdata(config, debug=False):
+def cmd_exe(executable: str, input_file: str) -> str:
     """
-    Initialize DUST2DUST by running SALT2mu on real data.
-
-    Runs SALT2mu on real data to get baseline values for beta, betaerr,
-    sigint, and siginterr that will be compared against in likelihood calculations.
-    This establishes the "truth" values from observed data.
+    Build command string for SALT2mu.exe with subprocess file placeholders.
 
     Args:
-        config: Configuration object
-        debug: If True, use debug connection index (default: False)
+        executable: Name of the executable (e.g., 'SALT2mu.exe').
+        input_file: Path to the input file for SALT2mu.
 
     Returns:
-        SALT2mu: Connection object containing real data fit results with attributes:
-                 - beta: Color-luminosity parameter
-                 - betaerr: Uncertainty on beta
-                 - sigint: Intrinsic scatter
-                 - siginterr: Uncertainty on sigint
-                 - bindf: Pandas DataFrame with binned statistics
+        Command string with %s placeholders for subprocess files
+        (mapsout, SALT2muout, log).
+    """
+    return f"{executable} {input_file} SUBPROCESS_FILES=%s,%s,%s "
+
+
+def init_salt2mu_realdata(config: Config, debug: bool = False) -> dict[str, Any]:
+    """
+    Initialize DUST2DUSTY by running SALT2mu on real data.
+
+    Runs SALT2mu on real data to get baseline values for beta, betaerr,
+    sigint, and siginterr that will be compared against in likelihood
+    calculations. This establishes the "truth" values from observed data.
+
+    Args:
+        config: Configuration object containing paths and parameters.
+        debug: If True, use debug connection index.
+
+    Returns:
+        Dictionary containing real data fit results with keys:
+            - beta: Color-luminosity parameter
+            - betaerr: Uncertainty on beta
+            - sigint: Intrinsic scatter
+            - siginterr: Uncertainty on sigint
+            - bindf: Pandas DataFrame with binned statistics
+            - alpha: SALT2 standardization parameter
+            - alphaerr: Uncertainty on alpha
+            - maxprob: Maximum probability ratio
     """
     index = ""
     directory = "realdata_files"
@@ -50,7 +78,7 @@ def init_salt2mu_realdata(config, debug=False):
     # Generate output table specification (color bins x split parameter bins)
     arg_outtable = f"'c(6,-0.2:0.25)*{config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
 
-    cmd = cmd_exe(JOBNAME_SALT2mu, config.data_input) + (
+    cmd = cmd_exe(JOBNAME_SALT2MU, config.data_input) + (
         f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} debug_flag=930"
     )
 
@@ -66,13 +94,15 @@ def init_salt2mu_realdata(config, debug=False):
     return real_data.salt2mu_results
 
 
-def set_numpy_threads(n_threads=4):
-    """Set number of threads for numpy operations.
+def set_numpy_threads(n_threads: int = 4) -> None:
+    """
+    Set number of threads for numpy operations.
 
-    Must be called BEFORE importing numpy to have effect.
+    Must be called BEFORE importing numpy to have effect. Sets environment
+    variables for various BLAS implementations.
 
     Args:
-        n_threads: Number of threads to use (default: 4)
+        n_threads: Number of threads to use for linear algebra operations.
     """
     os.environ["OMP_NUM_THREADS"] = str(n_threads)
     os.environ["OPENBLAS_NUM_THREADS"] = str(n_threads)
@@ -81,49 +111,50 @@ def set_numpy_threads(n_threads=4):
     os.environ["NUMEXPR_NUM_THREADS"] = str(n_threads)
 
 
-def pconv(INP_PARAMS, paramshapesdict, splitdict, distribution_parameters):
+def pconv(
+    inp_params: list[str],
+    paramshapesdict: dict[str, str],
+    splitdict: dict[str, dict[str, float]],
+    distribution_parameters: dict[str, list[str]],
+) -> list[str]:
     """
-    Convert input parameters to expanded parameter list accounting for distribution shapes and splits.
+    Convert input parameters to expanded parameter list.
 
-    Takes high-level parameter names and expands them into full list of distribution parameters,
-    accounting for:
+    Takes high-level parameter names and expands them into a full list of
+    distribution parameters, accounting for:
     1. Distribution shape (Gaussian needs mu+std, Exponential needs tau, etc.)
-    2. Parameter splits (e.g., different values for low/high mass, low/high redshift)
+    2. Parameter splits (e.g., different values for low/high mass)
 
     Example:
-        INP_PARAMS = ['RV']
-        paramshapesdict = {'RV': 'Gaussian'}  # needs mu, std
-        splitdict = {'RV': {'HOST_LOGMASS': 10}}  # split at mass=10
-
-        Returns: ['RV_HOST_LOGMASS_low_mu', 'RV_HOST_LOGMASS_low_std',
-                  'RV_HOST_LOGMASS_high_mu', 'RV_HOST_LOGMASS_high_std']
+        >>> pconv(['RV'], {'RV': 'Gaussian'}, {'RV': {'HOST_LOGMASS': 10}},
+        ...       {'Gaussian': ['mu', 'std']})
+        ['RV_HOST_LOGMASS_low_mu', 'RV_HOST_LOGMASS_low_std',
+         'RV_HOST_LOGMASS_high_mu', 'RV_HOST_LOGMASS_high_std']
 
     Args:
-        INP_PARAMS: List of high-level parameter names (e.g., ['c', 'RV', 'EBV'])
-        paramshapesdict: Maps parameter to distribution shape (e.g., {'c': 'Gaussian'})
-        splitdict: Nested dict defining parameter splits
-                   {param: {split_var: split_value}}
-                   e.g., {'RV': {'HOST_LOGMASS': 10, 'SIM_ZCMB': 0.1}}
-        distribution_parameters: Dict mapping distribution names to their parameter names
+        inp_params: List of high-level parameter names (e.g., ['c', 'RV', 'EBV']).
+        paramshapesdict: Maps parameter to distribution shape
+            (e.g., {'c': 'Gaussian'}).
+        splitdict: Nested dict defining parameter splits.
+            Format: {param: {split_var: split_value}}.
+            Example: {'RV': {'HOST_LOGMASS': 10, 'SIM_ZCMB': 0.1}}.
+        distribution_parameters: Dict mapping distribution names to their
+            parameter names (e.g., {'Gaussian': ['mu', 'std']}).
 
     Returns:
-        list: Expanded parameter names (length = ndim for MCMC)
-              Format: 'PARAM_SPLITVAR1_lowhigh_SPLITVAR2_lowhigh_..._DISTRIBUTIONPARAM'
+        Expanded parameter names (length = ndim for MCMC).
+        Format: 'PARAM_SPLITVAR1_lowhigh_SPLITVAR2_lowhigh_..._DISTPARAM'.
     """
-    import itertools
-
-    inpfull = []
-    for i in INP_PARAMS:
-        initial_dimension = distribution_parameters[paramshapesdict[i]]
+    inpfull: list[list[str]] = []
+    for i in inp_params:
+        initial_dimension = list(distribution_parameters[paramshapesdict[i]])
         if i in splitdict.keys():
-            things_to_split_on = splitdict[i]  # {"Mass": 10, "z": 0.1}
-            nsplits = len(things_to_split_on)  # 2
-            params_to_split_on = things_to_split_on.keys()  # ["Mass", "z"]
+            things_to_split_on = splitdict[i]
+            nsplits = len(things_to_split_on)
+            params_to_split_on = things_to_split_on.keys()
             # Create format string like "{}_{}_{}_{}" for nsplits*2 parameters
             format_string = "_".join(["{}"] * nsplits * 2)
-            lowhigh_array = np.tile(
-                ["low", "high"], [nsplits, 1]
-            )  # [["low", "high"], ["low", "high"]]
+            lowhigh_array = np.tile(["low", "high"], [nsplits, 1])
             splitlist = []
             for lowhigh_combo in itertools.product(*lowhigh_array):
                 to_format = [val for pair in zip(params_to_split_on, lowhigh_combo) for val in pair]
@@ -134,48 +165,48 @@ def pconv(INP_PARAMS, paramshapesdict, splitdict, distribution_parameters):
             ]
         final_dimension = [i + "_" + s for s in initial_dimension]
         inpfull.append(final_dimension)
-    inpfull = [item for sublist in inpfull for item in sublist]
-    return inpfull
+    return [item for sublist in inpfull for item in sublist]
 
 
 def input_cleaner(
-    INP_PARAMS,
-    PARAMSHAPESDICT,
-    SPLITDICT,
-    DISTRIBUTION_PARAMETERS,
-    PARAMETER_INITIALIZATION,
-    parameter_overrides,
-    walkfactor=2,
-):
+    inp_params: list[str],
+    paramshapesdict: dict[str, str],
+    splitdict: dict[str, dict[str, float]],
+    distribution_parameters: dict[str, list[str]],
+    parameter_initialization: dict[str, list[Any]],
+    parameter_overrides: dict[str, float],
+    walkfactor: int = 2,
+) -> tuple[NDArray[np.float64], int, int]:
     """
     Initialize MCMC walker starting positions with appropriate constraints.
 
-    Generates initial walker positions for emcee sampler, ensuring all parameters
-    start within their valid bounds and with appropriate spreads.
+    Generates initial walker positions for emcee sampler, ensuring all
+    parameters start within their valid bounds and with appropriate spreads.
 
     Args:
-        INP_PARAMS: List of parameter names to fit (e.g., ['c', 'RV', 'EBV'])
-        PARAMSHAPESDICT: Maps parameter to distribution shape
-        SPLITDICT: Nested dict defining parameter splits
-        DISTRIBUTION_PARAMETERS: Dict mapping distribution names to their parameter names
-        PARAMETER_INITIALIZATION: Dictionary containing initialization info for each expanded parameter:
-                   {param_name: [mean, std, require_positive, [lower_bound, upper_bound]]}
-        parameter_overrides: Dictionary of parameters to fix (not fit)
-        walkfactor: Multiplier for number of walkers (nwalkers = ndim * walkfactor, default: 2)
+        inp_params: List of parameter names to fit (e.g., ['c', 'RV', 'EBV']).
+        paramshapesdict: Maps parameter to distribution shape.
+        splitdict: Nested dict defining parameter splits.
+        distribution_parameters: Dict mapping distribution names to parameter names.
+        parameter_initialization: Dictionary containing initialization info for
+            each expanded parameter. Format:
+            {param_name: [mean, std, require_positive, [lower_bound, upper_bound]]}.
+        parameter_overrides: Dictionary of parameters to fix (not fit).
+        walkfactor: Multiplier for number of walkers (nwalkers = ndim * walkfactor).
 
     Returns:
-        tuple: (pos, nwalkers, ndim)
-               pos: array of shape (nwalkers, ndim) with initial walker positions
-               nwalkers: number of MCMC walkers
-               ndim: number of dimensions (parameters)
+        Tuple of (pos, nwalkers, ndim) where:
+            - pos: Array of shape (nwalkers, ndim) with initial walker positions
+            - nwalkers: Number of MCMC walkers
+            - ndim: Number of dimensions (parameters)
     """
-    plist = pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT, DISTRIBUTION_PARAMETERS)
+    plist = pconv(inp_params, paramshapesdict, splitdict, distribution_parameters)
     nwalkers = len(plist) * walkfactor
     for element in parameter_overrides.keys():
         plist.remove(element)
     pos = np.abs(0.1 * np.random.randn(nwalkers, len(plist)))
     for entry in range(len(plist)):
-        newpos_param = PARAMETER_INITIALIZATION[plist[entry]]
+        newpos_param = parameter_initialization[plist[entry]]
         pos[:, entry] = np.random.normal(newpos_param[0], newpos_param[1], len(pos[:, entry]))
         if newpos_param[2]:
             pos[:, entry] = np.abs(pos[:, entry])
@@ -188,69 +219,69 @@ def input_cleaner(
     return pos, nwalkers, len(plist)
 
 
-def subprocess_to_snana(OUTDIR, snana_mapping):
+def subprocess_to_snana(outdir: str, snana_mapping: dict[str, str]) -> str:
     """
     Convert GENPDF file from SUBPROCESS format to SNANA-compatible format.
 
-    Reads GENPDF.DAT file, removes the first line (header), and replaces variable
-    names from subprocess format (e.g., 'SIM_c', 'SIM_RV') to SNANA format
-    (e.g., 'SALT2c', 'RV') so the file can be used directly in SNANA simulations.
+    Reads GENPDF.DAT file, removes the first line (header), and replaces
+    variable names from subprocess format (e.g., 'SIM_c', 'SIM_RV') to SNANA
+    format (e.g., 'SALT2c', 'RV') so the file can be used directly in SNANA
+    simulations.
 
     Args:
-        OUTDIR: Output directory containing GENPDF.DAT (should end with '/')
+        outdir: Output directory containing GENPDF.DAT (should end with '/').
         snana_mapping: Dictionary mapping subprocess names to SNANA names.
-                       Uses SUBPROCESS_TO_SNANA constant:
-                       {'SIM_c': 'SALT2c', 'SIM_RV': 'RV', 'HOST_LOGMASS': 'LOGMASS', ...}
-
-    Side effects:
-        - Removes and recreates GENPDF.DAT file with:
-          - First line removed
-          - All variable names converted to SNANA format
+            Example: {'SIM_c': 'SALT2c', 'SIM_RV': 'RV', 'HOST_LOGMASS': 'LOGMASS'}.
 
     Returns:
-        str: 'Done' upon completion
+        'Done' upon successful completion.
+
+    Side Effects:
+        Modifies GENPDF.DAT file in place:
+        - Removes first line
+        - Converts all variable names to SNANA format
     """
-    filein = OUTDIR + "GENPDF.DAT"
-    f = open(filein)
-    lines = f.readlines()
-    f.close()
+    filein = outdir + "GENPDF.DAT"
+    with open(filein) as f:
+        lines = f.readlines()
     del lines[0]
     os.remove(filein)
-    f = open(filein, "w+")
-    for line in lines:
-        f.write(line)
-    f.close()
-    f = open(filein)
-    filedata = f.read()
-    f.close()
-    for i in snana_mapping.keys():
-        if i in filedata:
-            filedata = filedata.replace(i, snana_mapping[i])
+    with open(filein, "w+") as f:
+        for line in lines:
+            f.write(line)
+    with open(filein) as f:
+        filedata = f.read()
+    for key in snana_mapping.keys():
+        if key in filedata:
+            filedata = filedata.replace(key, snana_mapping[key])
     os.remove(filein)
-    f = open(filein, "w")
-    f.write(filedata)
-    f.close()
+    with open(filein, "w") as f:
+        f.write(filedata)
     return "Done"
 
 
-def normhisttodata(datacount, simcount):
+def normhisttodata(
+    datacount: NDArray[np.float64] | list[float],
+    simcount: NDArray[np.float64] | list[float],
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_]]:
     """
     Normalize simulation histogram to match total counts in data.
 
-    Scales simulation counts to have same total as data, computes Poisson errors,
-    and masks bins where both data and sim are zero. This ensures fair comparison
-    between data and simulation histograms regardless of total event counts.
+    Scales simulation counts to have same total as data, computes Poisson
+    errors, and masks bins where both data and sim are zero. This ensures
+    fair comparison between data and simulation histograms regardless of
+    total event counts.
 
     Args:
-        datacount: Array of data histogram counts per bin (will be converted to numpy array)
-        simcount: Array of simulation histogram counts per bin (will be converted to numpy array)
+        datacount: Array of data histogram counts per bin.
+        simcount: Array of simulation histogram counts per bin.
 
     Returns:
-        tuple: (datacount_masked, simcount_normalized, poisson_errors, mask)
-            datacount_masked: Data counts with zero bins removed
-            simcount_normalized: Simulation counts scaled by (datatot/simtot), zeros removed
-            poisson_errors: sqrt(datacount) per bin, minimum value 1 to avoid division by zero
-            mask: Boolean array indicating which bins are non-zero (True = kept)
+        Tuple of (datacount_masked, simcount_normalized, poisson_errors, mask):
+            - datacount_masked: Data counts with zero bins removed
+            - simcount_normalized: Sim counts scaled by (datatot/simtot), zeros removed
+            - poisson_errors: sqrt(datacount) per bin, minimum value 1
+            - mask: Boolean array indicating non-zero bins (True = kept)
     """
     datacount = np.array(datacount)
     simcount = np.array(simcount)

@@ -1,8 +1,8 @@
 """
 Command-line interface for DUST2DUSTY.
 
-This module provides the main entry point for running DUST2DUSTY from the command line,
-as well as configuration loading and the Config dataclass.
+This module provides the main entry point for running DUST2DUSTY from the
+command line, as well as configuration loading and the Config dataclass.
 
 Usage:
     dust2dusty --CONFIG config.yml [--DEBUG] [--test_run] [--NOWEIGHT]
@@ -11,40 +11,60 @@ Example:
     dust2dusty --CONFIG IN_DUST2DUST.yml --DEBUG
 """
 
+from __future__ import annotations
+
 import argparse
+import logging
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar
 
 import numpy as np
 import yaml
+from numpy.typing import NDArray
 
 from dust2dusty.logging import get_logger, setup_logging
-
-# ===========================================================================================================================================
-############################################################# Configuration Class ###################################################
-# ===========================================================================================================================================
 
 
 @dataclass
 class Config:
     """
-    Configuration dataclass for DUST2DUST.
+    Configuration dataclass for DUST2DUSTY.
 
-    Provides type-safe access to all configuration parameters with
-    attribute access syntax (config.data_input instead of config['DATA_INPUT']).
+    Provides type-safe access to all configuration parameters with attribute
+    access syntax (config.data_input instead of config['DATA_INPUT']).
 
-    Attributes organized by purpose:
-    - File paths: data_input, sim_input, simref_file, outdir, chains
-    - Parameters: inp_params, params, paramshapesdict, splitdict, splitparam, parameter_initialization, splitarr
-    - Command-line overrides: cmd_data, cmd_sim
-    - Flags: single, debug, noweight
+    Attributes:
+        data_input: Path to real data input file for SALT2mu.
+        sim_input: Path to simulation input file for SALT2mu.
+        simref_file: Path to simulation reference file.
+        outdir: Output directory for results.
+        chains: Path to existing chains file (for resuming).
+        inp_params: List of parameter names to fit.
+        params: Initial parameter values for test runs.
+        paramshapesdict: Maps parameters to distribution shapes.
+        splitdict: Defines parameter splits by host properties.
+        splitparam: Primary split parameter name.
+        parameter_initialization: Initialization specs for each parameter.
+        splitarr: Array generation strings for split variables.
+        cmd_data: Command-line override for data input.
+        cmd_sim: Command-line override for simulation input.
+        test_run: If True, run single likelihood evaluation only.
+        debug: If True, enable verbose debug output.
+        noweight: If True, disable reweighting function.
+
+    Class Attributes:
+        PARAM_TO_SALT2MU: Maps internal names to SALT2mu column names.
+        SUBPROCESS_TO_SNANA: Maps subprocess names to SNANA names.
+        DEFAULT_PARAMETER_RANGES: Value grids for PDF generation.
+        SPLIT_PARAMETER_FORMATS: Binning specs for split parameters.
+        PARAMETER_OVERRIDES: Fixed parameters (not fitted).
+        DISTRIBUTION_PARAMETERS: Parameter names for each distribution type.
     """
 
     # Parameter name mappings for SALT2mu format
-    # Converts internal parameter names to SALT2mu/simulation column names
-    PARAM_TO_SALT2MU: ClassVar[Dict[str, str]] = {
+    PARAM_TO_SALT2MU: ClassVar[dict[str, str]] = {
         "c": "SIM_c",
         "x1": "SIM_x1",
         "HOST_LOGMASS": "HOST_LOGMASS",
@@ -60,8 +80,7 @@ class Config:
     }
 
     # SNANA output format mappings
-    # Converts SUBPROCESS column names to SNANA standard names
-    SUBPROCESS_TO_SNANA: ClassVar[Dict[str, str]] = {
+    SUBPROCESS_TO_SNANA: ClassVar[dict[str, str]] = {
         "SIM_c": "SALT2c",
         "SIM_RV": "RV",
         "HOST_LOGMASS": "LOGMASS",
@@ -72,8 +91,7 @@ class Config:
     }
 
     # Default value ranges for parameter arrays
-    # Defines the grid of values used for PDF generation for each parameter
-    DEFAULT_PARAMETER_RANGES: ClassVar[Dict[str, np.ndarray]] = {
+    DEFAULT_PARAMETER_RANGES: ClassVar[dict[str, NDArray[np.float64]]] = {
         "c": np.arange(-0.5, 0.5, 0.001),
         "x1": np.arange(-5, 5, 0.01),
         "RV": np.arange(0, 8, 0.1),
@@ -82,22 +100,17 @@ class Config:
     }
 
     # Split parameter format specifications
-    # Defines how parameters are split into bins for SALT2mu output
-    # Format: 'PARAM(nbins, min:max)'
-    SPLIT_PARAMETER_FORMATS: ClassVar[Dict[str, str]] = {
+    SPLIT_PARAMETER_FORMATS: ClassVar[dict[str, str]] = {
         "HOST_LOGMASS": "HOST_LOGMASS(2,0:20)",
         "HOST_COLOR": "HOST_COLOR(2,-.5:2.5)",
         "zHD": "zHD(2,0:1)",
     }
 
-    # Parameter override dictionary
-    # Used to fix specific parameters during fitting (not fitted, held constant)
-    # Populated programmatically based on user input or left empty for standard fitting
-    PARAMETER_OVERRIDES: ClassVar[Dict[str, float]] = {}
+    # Parameter override dictionary (for fixing parameters)
+    PARAMETER_OVERRIDES: ClassVar[dict[str, float]] = {}
 
     # Distribution parameter specifications
-    # Maps distribution types to their required parameter names
-    DISTRIBUTION_PARAMETERS: ClassVar[Dict[str, List[str]]] = {
+    DISTRIBUTION_PARAMETERS: ClassVar[dict[str, list[str]]] = {
         "Gaussian": ["mu", "std"],
         "Skewed Gaussian": ["mu", "std_l", "std_r"],
         "Exponential": ["Tau"],
@@ -105,42 +118,44 @@ class Config:
         "Double Gaussian": ["a1", "mu1", "std1", "mu2", "std2"],
     }
 
-    # File paths
+    # File paths (required)
     data_input: str
     sim_input: str
     simref_file: str
+
+    # File paths (optional)
     outdir: str = ""
-    chains: Optional[str] = None
+    chains: str | None = None
 
     # Parameter configuration
-    inp_params: List[str] = field(default_factory=list)
-    params: List[float] = field(default_factory=list)
-    paramshapesdict: Dict[str, str] = field(default_factory=dict)
-    splitdict: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    inp_params: list[str] = field(default_factory=list)
+    params: list[float] = field(default_factory=list)
+    paramshapesdict: dict[str, str] = field(default_factory=dict)
+    splitdict: dict[str, dict[str, float]] = field(default_factory=dict)
     splitparam: str = "HOST_LOGMASS"
-    parameter_initialization: Dict[str, List[Any]] = field(default_factory=dict)
-    splitarr: Dict[str, str] = field(default_factory=dict)
+    parameter_initialization: dict[str, list[Any]] = field(default_factory=dict)
+    splitarr: dict[str, str] = field(default_factory=dict)
 
-    # Command-line overrides (set by args, not config file)
-    cmd_data: Optional[str] = None
-    cmd_sim: Optional[str] = None
+    # Command-line overrides
+    cmd_data: str | None = None
+    cmd_sim: str | None = None
 
-    # Runtime flags (set by args, not config file)
+    # Runtime flags
     test_run: bool = False
     debug: bool = False
     noweight: bool = False
 
     @classmethod
-    def from_dict(cls, config_dict: dict, args: argparse.Namespace) -> "Config":
+    def from_dict(cls, config_dict: dict[str, Any], args: argparse.Namespace) -> Config:
         """
         Create Config object from YAML dictionary and command-line arguments.
 
         Args:
-            config_dict: Dictionary loaded from YAML file
-            args: Parsed command-line arguments
+            config_dict: Dictionary loaded from YAML configuration file.
+            args: Parsed command-line arguments.
 
         Returns:
-            Config: Configured dataclass instance
+            Configured Config dataclass instance.
         """
         return cls(
             # File paths
@@ -161,35 +176,32 @@ class Config:
             cmd_data=args.CMD_DATA,
             cmd_sim=args.CMD_SIM,
             test_run=args.test_run,
-            debug=args.DEBUG or args.test_run,  # SINGLE implies DEBUG
+            debug=args.DEBUG or args.test_run,
             noweight=args.NOWEIGHT,
         )
 
 
-# ===========================================================================================================================================
-############################################################# IO ###################################################
-# ===========================================================================================================================================
-
-
-def create_output_directories(outdir, logger):
+def create_output_directories(outdir: str, logger: logging.Logger) -> str:
     """
-    Create output directory structure for DUST2DUST results.
+    Create output directory structure for DUST2DUSTY results.
 
     Creates the main output directory and required subdirectories:
-    - chains: MCMC chain outputs
-    - figures: Diagnostic plots
-    - parallel: Subprocess communication files
-    - logs: Log files
+        - chains: MCMC chain outputs
+        - figures: Diagnostic plots
+        - parallel: Subprocess communication files
+        - logs: Log files
+        - realdata_files: Real data SALT2mu outputs
+        - worker_files: Worker subprocess files
 
     Args:
-        outdir: Path to main output directory (can be relative or absolute)
-        logger: Logger instance for output messages
+        outdir: Path to main output directory (can be relative or absolute).
+        logger: Logger instance for output messages.
 
     Returns:
-        str: Absolute path to output directory with trailing slash
+        Absolute path to output directory with trailing slash.
 
     Raises:
-        SystemExit: If directory structure cannot be created
+        SystemExit: If directory structure cannot be created.
     """
     # Use current directory if none specified
     if not outdir:
@@ -214,7 +226,14 @@ def create_output_directories(outdir, logger):
         logger.debug(f"Using existing directory: {outdir}")
 
     # Create required subdirectories
-    required_subdirs = ["chains", "figures", "parallel", "logs"]
+    required_subdirs = [
+        "chains",
+        "figures",
+        "parallel",
+        "logs",
+        "realdata_files",
+        "worker_files",
+    ]
     for subdir in required_subdirs:
         subdir_path = os.path.join(outdir, subdir)
         if not os.path.exists(subdir_path):
@@ -229,33 +248,32 @@ def create_output_directories(outdir, logger):
     missing_dirs = [d for d in required_subdirs if not os.path.isdir(os.path.join(outdir, d))]
     if missing_dirs:
         logger.error(f"Missing required subdirectories: {missing_dirs}")
-        logger.error("Required subdirectories: chains, figures, parallel, logs")
         sys.exit(1)
 
     return outdir
 
 
-def load_config(config_path: str, args: argparse.Namespace, logger) -> Config:
+def load_config(config_path: str, args: argparse.Namespace, logger: logging.Logger) -> Config:
     """
-    Load configuration from YAML file, create Config object, and set up output directories.
+    Load configuration from YAML file and set up output directories.
 
     Performs complete configuration setup:
-    1. Loads and validates YAML configuration file
-    2. Creates Config dataclass instance
-    3. Sets up output directory structure
-    4. Prints configuration summary
+        1. Loads and validates YAML configuration file
+        2. Creates Config dataclass instance
+        3. Sets up output directory structure
+        4. Logs configuration summary
 
     Args:
-        config_path: Path to YAML configuration file
-        args: Parsed command-line arguments
-        logger: Logger instance for output messages
+        config_path: Path to YAML configuration file.
+        args: Parsed command-line arguments.
+        logger: Logger instance for output messages.
 
     Returns:
-        Config: Fully configured Config instance with output directories created
+        Fully configured Config instance with output directories created.
 
     Raises:
-        SystemExit: If config file doesn't exist, has invalid syntax, missing required keys,
-                   or output directories cannot be created
+        SystemExit: If config file doesn't exist, has invalid syntax,
+            is missing required keys, or output directories cannot be created.
     """
     # Validate config file path
     if not config_path:
@@ -309,22 +327,25 @@ def load_config(config_path: str, args: argparse.Namespace, logger) -> Config:
     return config
 
 
-def get_args():
+def get_args() -> argparse.Namespace:
     """
-    Parse command-line arguments for DUST2DUST.
+    Parse command-line arguments for DUST2DUSTY.
 
-    Defines and parses all command-line flags including configuration file path,
-    debug modes, plotting options, and SALT2mu command overrides.
+    Defines and parses all command-line flags including configuration file
+    path, debug modes, and SALT2mu command overrides.
 
     Returns:
-        argparse.Namespace: Parsed command-line arguments
+        Parsed command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description="DUST2DUST: MCMC fitting of supernova intrinsic scatter distributions"
+        description="DUST2DUSTY: MCMC fitting of supernova intrinsic scatter distributions"
     )
 
     parser.add_argument(
-        "--CONFIG", type=str, default="", help="Path to YAML configuration file (required)"
+        "--CONFIG",
+        type=str,
+        default="",
+        help="Path to YAML configuration file (required)",
     )
 
     parser.add_argument(
@@ -334,7 +355,9 @@ def get_args():
     )
 
     parser.add_argument(
-        "--DEBUG", action="store_true", help="Enable debug mode with verbose output"
+        "--DEBUG",
+        action="store_true",
+        help="Enable debug mode with verbose output",
     )
 
     parser.add_argument(
@@ -360,12 +383,15 @@ def get_args():
     return parser.parse_args()
 
 
-def main():
+def main() -> int:
     """
     Main entry point for the dust2dusty command-line tool.
 
     Parses command-line arguments, sets up logging, loads configuration,
     and runs either a test evaluation or full MCMC sampling.
+
+    Returns:
+        Exit code (0 for success).
     """
     # Import here to avoid circular imports
     from dust2dusty.dust2dust import (
@@ -378,19 +404,21 @@ def main():
     # Parse arguments and load configuration
     args = get_args()
 
-    # Set up logging before loading config (uses shared logging module)
-    DEBUG = args.DEBUG or args.test_run
-    setup_logging(debug=DEBUG)
+    # Set up logging before loading config
+    debug = args.DEBUG or args.test_run
+    setup_logging(debug=debug)
     logger = get_logger()
 
     # Load and validate configuration
     config = load_config(args.CONFIG, args, logger)
 
     # Initialize real data
-    realdata_salt2mu_results = init_salt2mu_realdata(config, debug=DEBUG)
+    realdata_salt2mu_results = init_salt2mu_realdata(config, debug=debug)
 
-    if DEBUG:
+    if debug:
         nwalkers = 1
+        ndim = 0
+        pos = np.array([])
     else:
         pos, nwalkers, ndim = input_cleaner(
             config.inp_params,
@@ -404,7 +432,7 @@ def main():
 
     # Test run mode - single likelihood evaluation
     if config.test_run:
-        _init_worker(config, realdata_salt2mu_results, debug=DEBUG)
+        _init_worker(config, realdata_salt2mu_results, debug=debug)
         logger.info(f"Test run result: {log_probability(config.params)}")
         sys.exit(0)
 
@@ -416,7 +444,7 @@ def main():
     logger.debug(f"  Parameters: {', '.join(config.inp_params)}")
     logger.debug("=" * 60 + "\n")
 
-    sampler = MCMC(config, pos, nwalkers, ndim, realdata, debug=DEBUG)
+    sampler = MCMC(config, pos, nwalkers, ndim, realdata_salt2mu_results, debug=debug)
 
     logger.info("DUST2DUSTY complete.")
     return 0

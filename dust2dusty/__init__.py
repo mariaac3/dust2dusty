@@ -1,38 +1,46 @@
 """
-DUST2DUSTY: Supernova Cosmology Analysis with MCMC
+DUST2DUSTY: Supernova Cosmology Analysis with MCMC.
 
-A Python package for Markov Chain Monte Carlo (MCMC) fitting of supernova intrinsic
-scatter distributions while accounting for selection effects using reweighting.
+A Python package for Markov Chain Monte Carlo (MCMC) fitting of supernova
+intrinsic scatter distributions while accounting for selection effects
+using reweighting.
 
-The package fits distributions for supernova properties (color, stretch, extinction, etc.)
-by comparing real data to reweighted simulations via the SALT2mu.exe executable.
+The package fits distributions for supernova properties (color, stretch,
+extinction, etc.) by comparing real data to reweighted simulations via
+the SALT2mu.exe executable.
 
-Main components:
-    - dust2dust: Main MCMC fitting module
-    - salt2mu: Interface to SALT2mu.exe subprocess
-    - logging: Shared logging configuration
+Modules:
+    cli: Command-line interface and Config dataclass.
+    dust2dust: Main MCMC fitting module with likelihood functions.
+    salt2mu: Interface to SALT2mu.exe subprocess.
+    logging: Shared logging configuration.
+    utils: Utility functions for parameter handling and normalization.
 
-Example usage:
-    Command line:
+Example Usage:
+    Command line::
+
         dust2dusty --CONFIG config.yml --DEBUG
 
-    Python API:
-        from dust2dusty import Config, load_config, run_mcmc
+    Python API::
+
+        from dust2dusty import Config, load_config, MCMC
         from dust2dusty.logging import setup_logging
+        from dust2dusty.utils import init_salt2mu_realdata, input_cleaner
 
         setup_logging(debug=True)
-        config = load_config("config.yml", args)
-        run_mcmc(config)
+        config = load_config("config.yml", args, logger)
+        realdata = init_salt2mu_realdata(config)
+        pos, nwalkers, ndim = input_cleaner(...)
+        sampler = MCMC(config, pos, nwalkers, ndim, realdata)
 """
 
-__version__ = "0.1.0"
-__author__ = "B. Popovic, D. Brout, B. Carreres, M. Acevedo"
+__version__: str = "0.1.0"
+__author__: str = "B. Popovic, D. Brout, B. Carreres, M. Acevedo"
 
 # Import main components for convenient access
 from dust2dusty.cli import Config, load_config
 from dust2dusty.dust2dust import (
     MCMC,
-    init_dust2dust,
     log_likelihood,
     log_prior,
     log_probability,
@@ -40,6 +48,7 @@ from dust2dusty.dust2dust import (
 from dust2dusty.logging import get_logger, setup_logging
 from dust2dusty.salt2mu import SALT2mu
 from dust2dusty.utils import (
+    init_salt2mu_realdata,
     input_cleaner,
     normhisttodata,
     pconv,
@@ -57,7 +66,7 @@ __all__ = [
     "Config",
     "load_config",
     # Main functions
-    "init_dust2dust",
+    "init_salt2mu_realdata",
     "MCMC",
     "log_likelihood",
     "log_prior",

@@ -1,13 +1,13 @@
 """
-Shared logging configuration for DUST2DUST package.
+Shared logging configuration for DUST2DUSTY package.
 
-This module provides a unified logging setup for both DUST2DUST.py and callSALT2mu.py.
-All modules in the package should use the logger obtained from get_logger().
+This module provides a unified logging setup for all modules in the package.
+All modules should use the logger obtained from get_logger().
 
 Usage:
-    from dust2dust_logging import setup_logging, get_logger
+    from dust2dusty.logging import setup_logging, get_logger
 
-    # In main script (DUST2DUST.py):
+    # In main script:
     setup_logging(debug=True)  # Call once at startup
 
     # In any module:
@@ -18,30 +18,32 @@ Usage:
     logger.error("Error message")
 """
 
+from __future__ import annotations
+
 import logging
 import sys
 
 # Package-wide logger name
-LOGGER_NAME = "dust2dust"
+LOGGER_NAME: str = "dust2dusty"
 
 # Track if logging has been configured
-_logging_configured = False
+_logging_configured: bool = False
 
 
-def setup_logging(debug=False, log_file=None):
+def setup_logging(debug: bool = False, log_file: str | None = None) -> logging.Logger:
     """
-    Configure logging for the DUST2DUST package.
+    Configure logging for the DUST2DUSTY package.
 
     Sets up a package-wide logger with console output and optional file output.
     Should be called once at the start of the main program.
 
     Args:
-        debug: If True, set logging level to DEBUG; otherwise INFO (default: False)
-        log_file: Optional path to log file. If provided, logs will also be written
-                  to this file (default: None)
+        debug: If True, set logging level to DEBUG; otherwise INFO.
+        log_file: Optional path to log file. If provided, logs will also be
+            written to this file.
 
     Returns:
-        logging.Logger: Configured logger instance for DUST2DUST
+        Configured logger instance for DUST2DUSTY.
     """
     global _logging_configured
 
@@ -85,21 +87,23 @@ def setup_logging(debug=False, log_file=None):
     return logger
 
 
-def get_logger():
+def get_logger() -> logging.Logger:
     """
     Get the package-wide logger.
 
-    Returns the DUST2DUST logger. If setup_logging() hasn't been called yet,
+    Returns the DUST2DUSTY logger. If setup_logging() hasn't been called yet,
     returns an unconfigured logger (messages may not appear until setup_logging()
     is called).
 
     Returns:
-        logging.Logger: The DUST2DUST package logger
+        The DUST2DUSTY package logger.
     """
     return logging.getLogger(LOGGER_NAME)
 
 
-def setup_walker_logger(walker_id, log_dir="logs", debug=False):
+def setup_walker_logger(
+    walker_id: int | str, log_dir: str = "logs", debug: bool = False
+) -> logging.Logger:
     """
     Create a logger for a specific MCMC walker subprocess.
 
@@ -107,12 +111,12 @@ def setup_walker_logger(walker_id, log_dir="logs", debug=False):
     communication with SALT2mu.exe.
 
     Args:
-        walker_id: Integer or string identifier for the walker
-        log_dir: Directory for log files (default: "logs")
-        debug: If True, enable logging; otherwise use NullHandler (default: False)
+        walker_id: Integer or string identifier for the walker.
+        log_dir: Directory for log files.
+        debug: If True, enable file logging; otherwise use NullHandler.
 
     Returns:
-        logging.Logger: Logger instance for this specific walker
+        Logger instance for this specific walker.
     """
     logger_name = f"{LOGGER_NAME}.walker_{walker_id}"
     logger = logging.getLogger(logger_name)
