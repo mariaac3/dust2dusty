@@ -395,10 +395,10 @@ def main() -> int:
     """
     # Import here to avoid circular imports
     from dust2dusty.dust2dust import (
-        MCMC,
         _init_worker,
         log_probability,
     )
+    from dust2dusty.mcmc import MCMC
     from dust2dusty.utils import init_salt2mu_realdata, input_cleaner
 
     # Parse arguments and load configuration
@@ -444,7 +444,7 @@ def main() -> int:
     logger.debug(f"  Parameters: {', '.join(config.inp_params)}")
     logger.debug("=" * 60 + "\n")
 
-    sampler = MCMC(config, pos, nwalkers, ndim, realdata_salt2mu_results, debug=debug)
+    MCMC(config, pos, nwalkers, ndim, realdata_salt2mu_results, debug=debug)
 
     logger.info("DUST2DUSTY complete.")
     return 0

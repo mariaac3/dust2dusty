@@ -11,7 +11,8 @@ the SALT2mu.exe executable.
 
 Modules:
     cli: Command-line interface and Config dataclass.
-    dust2dust: Main MCMC fitting module with likelihood functions.
+    dust2dust: Worker-dependent likelihood functions and SALT2mu connection.
+    mcmc: Main MCMC sampling function using emcee.
     salt2mu: Interface to SALT2mu.exe subprocess.
     logging: Shared logging configuration.
     utils: Utility functions for parameter handling and normalization.
@@ -40,12 +41,12 @@ __author__: str = "B. Popovic, D. Brout, B. Carreres, M. Acevedo"
 # Import main components for convenient access
 from dust2dusty.cli import Config, load_config
 from dust2dusty.dust2dust import (
-    MCMC,
     log_likelihood,
     log_prior,
     log_probability,
 )
 from dust2dusty.logging import get_logger, setup_logging
+from dust2dusty.mcmc import MCMC
 from dust2dusty.salt2mu import SALT2mu
 from dust2dusty.utils import (
     init_salt2mu_realdata,
