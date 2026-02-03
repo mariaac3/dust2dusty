@@ -1,0 +1,26 @@
+# Created by SALT2mu SUBPROCESS
+# ITERATION: 0
+#
+# CPU:           0.10 minutes  
+# CPU_PER_EVENT: 1.2 msec/event  
+# NSNFIT: 5076 
+# FITPAR:  alpha0         =    0.16559 +-  0.00356 
+# FITPAR:  beta0          =    2.30873 +-  0.03210 
+# FITPAR:  sigint         =    0.14604 +-  0.00000 
+# FITPAR:  MAXPROB_RATIO  =    1.00000  #Beware, value > 1 violates bounding function 
+
+TABLE_NAME: c(6,-0.2:0.25)*HOST_LOGMASS(2,0:20)
+VARNAMES: ROW ibin_c ibin_HOST_LOGMASS NEVT MURES_SUM STD STD_ROBUST
+ROW: 0000   0   0    108    7.9089e+00    2.2179e-01   1.9580e-01
+ROW: 0001   1   0    407    1.3990e+01    1.8290e-01   1.7940e-01
+ROW: 0002   2   0    406    1.3753e+01    1.9114e-01   1.6170e-01
+ROW: 0003   3   0    223    8.9363e+00    2.1188e-01   1.7022e-01
+ROW: 0004   4   0     80    5.0567e+00    2.9623e-01   3.0101e-01
+ROW: 0005   5   0     23    2.0044e+00    3.5773e-01   3.6687e-01
+ROW: 0006   0   1    425    3.8577e+01    2.0847e-01   1.9434e-01
+ROW: 0007   1   1    943    2.1578e+01    1.8957e-01   1.6652e-01
+ROW: 0008   2   1   1134   -3.4535e+01    1.7650e-01   1.3978e-01
+ROW: 0009   3   1    687   -4.0556e+01    2.1103e-01   1.8728e-01
+ROW: 0010   4   1    321   -2.7783e+01    2.6397e-01   2.4833e-01
+ROW: 0011   5   1    159   -2.1790e+01    3.1203e-01   2.7991e-01
+# NEVT_SUM: 4916    # diagnostic

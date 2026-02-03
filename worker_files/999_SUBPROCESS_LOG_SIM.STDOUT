@@ -1,0 +1,414 @@
+
+ ****************************************************************** 
+   SALT2mu_DRIVER_EXEC NCALL=1  
+
+ -*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+
+	 BEGIN FIT for SUBPROCESS ITER=0
+
+ -*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+
+ z= 0.03000 -  0.12850  NZBIN(TOT,CUTS)=   686,   686   ISFLOAT=1
+ z= 0.12850 -  0.22700  NZBIN(TOT,CUTS)=  3240,  3240   ISFLOAT=1
+ z= 0.22700 -  0.32550  NZBIN(TOT,CUTS)=  7068,  7068   ISFLOAT=1
+ z= 0.32550 -  0.42400  NZBIN(TOT,CUTS)= 10885, 10885   ISFLOAT=1
+ z= 0.42400 -  0.52250  NZBIN(TOT,CUTS)= 13589, 13589   ISFLOAT=1
+ z= 0.52250 -  0.62100  NZBIN(TOT,CUTS)= 13099, 13099   ISFLOAT=1
+ z= 0.62100 -  0.71950  NZBIN(TOT,CUTS)=  9194,  9194   ISFLOAT=1
+ z= 0.71950 -  0.81800  NZBIN(TOT,CUTS)=  4868,  4868   ISFLOAT=1
+ z= 0.81800 -  0.91650  NZBIN(TOT,CUTS)=  3362,  3362   ISFLOAT=1
+ z= 0.91650 -  1.01500  NZBIN(TOT,CUTS)=  1922,  1922   ISFLOAT=1
+ z= 1.01500 -  1.11350  NZBIN(TOT,CUTS)=  1021,  1021   ISFLOAT=1
+ z= 1.11350 -  1.21200  NZBIN(TOT,CUTS)=   287,   287   ISFLOAT=1
+ z= 1.21200 -  1.31050  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.31050 -  1.40900  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.40900 -  1.50750  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.50750 -  1.60600  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.60600 -  1.70450  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.70450 -  1.80300  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.80300 -  1.90150  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.90150 -  2.00000  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ --> Use 12 of 20 z-bins in fit.
+
+
+ Begin applyCut_chi2max
+	 M0-shift = -0.0173 for approx H0 marg. 
+	 Chi2(12670352) = 16.28   -> reject   (DES/C3) 
+	 Chi2(20793095) = 33.63   -> reject   (DES/X1) 
+	 Chi2(37257875) = 17.14   -> reject   (DES/X3) 
+	 Chi2(44615876) = 25.83   -> reject   (DES/C2+C3) 
+	 Chi2(3190077) = 23.88   -> reject   (DES/C3) 
+	 Chi2(38426725) = 23.32   -> reject   (DES/X3) 
+	 Chi2(17045513) = 39.98   -> reject   (DES/X3) 
+	 Chi2(31566243) = 18.76   -> reject   (DES/X3) 
+	 Chi2(43260777) = 22.00   -> reject   (DES/S1) 
+	 Chi2(16584119) = 16.28   -> reject   (DES/X1) 
+	 Chi2(4193159) = 21.18   -> reject   (DES/X3) 
+	 Chi2(7158071) = 23.75   -> reject   (DES/X1) 
+	 Chi2(10403605) = 24.98   -> reject   (DES/X3) 
+	 Chi2(8652543) = 17.39   -> reject   (DES/X3) 
+	 Chi2(36085676) = 18.84   -> reject   (DES/E2) 
+	 Chi2(7399495) = 74.57   -> reject   (DES/S2) 
+	 Chi2(7994374) = 16.35   -> reject   (DES/S1) 
+	 Chi2(11613066) = 19.65   -> reject   (DES/S1) 
+	 Chi2(1168154) = 16.34   -> reject   (DES/S2) 
+	 Chi2(34842500) = 18.28   -> reject   (DES/E2) 
+	 Chi2(21425991) = 16.26   -> reject   (DES/C3) 
+	 Chi2(7049843) = 16.36   -> reject   (DES/E2) 
+	 Chi2(26024969) = 21.54   -> reject   (DES/S2) 
+	 Chi2(18826872) = 20.75   -> reject   (DES/X1) 
+	 Chi2(19177644) = 123.75   -> reject   (DES/X3) 
+	 Chi2(35269897) = 16.31   -> reject   (DES/C1) 
+	 Chi2(33807240) = 86.40   -> reject   (DES/X3) 
+	 Chi2(20954835) = 17.22   -> reject   (DES/C2) 
+	 Chi2(31850388) = 17.56   -> reject   (DES/S1) 
+	 Chi2(22780873) = 25.12   -> reject   (DES/S1) 
+	 Chi2(10983521) = 16.09   -> reject   (DES/C2) 
+	 Chi2(32645196) = 38.25   -> reject   (DES/X3) 
+	 Chi2(20789609) = 20.81   -> reject   (DES/X3) 
+	 Chi2(2803951) = 25.58   -> reject   (DES/C3) 
+	 Chi2(22673754) = 16.48   -> reject   (DES/X1) 
+	 Chi2(9716623) = 17.17   -> reject   (DES/C3) 
+	 Chi2(37081258) = 19.14   -> reject   (DES/C2) 
+	 Chi2(39568302) = 31.06   -> reject   (DES/C2) 
+	 Chi2(17348165) = 47.83   -> reject   (DES/X3) 
+	 Chi2(18093550) = 16.38   -> reject   (DES/X1) 
+	 Chi2(36065851) = 17.29   -> reject   (DES/C1+C3) 
+	 Chi2(8508925) = 62.70   -> reject   (DES/X3) 
+	 Chi2(4111401) = 23.91   -> reject   (DES/C3) 
+	 Chi2(932134) = 23.36   -> reject   (DES/X3) 
+	 Chi2(12508500) = 16.74   -> reject   (DES/X2) 
+	 Chi2(37441298) = 17.41   -> reject   (DES/E2) 
+	 Chi2(14288150) = 16.40   -> reject   (DES/X3) 
+	 Chi2(30738133) = 18.33   -> reject   (DES/S1) 
+	 Chi2(29136042) = 35.22   -> reject   (DES/S1) 
+	 Chi2(34708224) = 22.08   -> reject   (DES/E1) 
+	 Chi2(35495859) = 21.01   -> reject   (DES/E1) 
+	 Chi2(23015567) = 20.12   -> reject   (DES/X3) 
+	 Chi2(14136460) = 21.76   -> reject   (DES/C2+C3) 
+	 Chi2(8006791) = 18.42   -> reject   (DES/C2) 
+	 Chi2(15836425) = 29.90   -> reject   (DES/C2) 
+	 Chi2(44530133) = 166.37   -> reject   (DES/C2) 
+	 Chi2(42348110) = 22.29   -> reject   (DES/X3) 
+	 Chi2(27093021) = 24.52   -> reject   (DES/C3) 
+	 Chi2(16136181) = 18.18   -> reject   (DES/X3) 
+	 Chi2(12572814) = 207.63   -> reject   (DES/X1) 
+	 Chi2(16674927) = 24.11   -> reject   (DES/C1) 
+	 Chi2(30855060) = 27.57   -> reject   (DES/C3) 
+	 Chi2(31182453) = 31.39   -> reject   (DES/X3) 
+	 Chi2(19191382) = 39.08   -> reject   (DES/E2) 
+	 Chi2(4894612) = 163.27   -> reject   (DES/C1) 
+	 Chi2(9944211) = 34.78   -> reject   (DES/S2) 
+	 Chi2(30945519) = 61.93   -> reject   (DES/C2) 
+	 Chi2(23064051) = 19.03   -> reject   (DES/C3) 
+	 Chi2(42651949) = 17.04   -> reject   (DES/C2) 
+	 Chi2(10459501) = 17.42   -> reject   (DES/C1) 
+	 Chi2(1617093) = 18.14   -> reject   (DES/X3) 
+	 Chi2(21589976) = 16.35   -> reject   (DES/C1+C3) 
+	 Chi2(23147680) = 17.70   -> reject   (DES/C3) 
+	 Chi2(32640285) = 144.33   -> reject   (DES/X3) 
+	 Chi2(21456678) = 21.46   -> reject   (DES/C3) 
+	 Chi2(33792129) = 18.34   -> reject   (DES/S1) 
+	 Chi2(29714281) = 16.20   -> reject   (DES/X3) 
+	 Chi2(42638205) = 17.88   -> reject   (DES/C1) 
+	 Chi2(3616087) = 16.51   -> reject   (DES/C1) 
+	 Chi2(12578302) = 21.65   -> reject   (DES/X1) 
+	 Chi2(19310337) = 35.36   -> reject   (DES/C3) 
+	 Chi2(2439365) = 21.33   -> reject   (DES/E2) 
+	 Chi2(34063008) = 19.57   -> reject   (DES/E1+E2) 
+	 Chi2(15801770) = 21.76   -> reject   (DES/X1) 
+	 Chi2(29368169) = 16.66   -> reject   (DES/C3) 
+	 Chi2(26643117) = 19.70   -> reject   (DES/X3) 
+	 Chi2(19410417) = 22.38   -> reject   (DES/E1) 
+	 Chi2(29732835) = 17.18   -> reject   (DES/S1) 
+	 Chi2(15058099) = 19.96   -> reject   (DES/C3) 
+	 Chi2(26153061) = 22.82   -> reject   (DES/X1) 
+	 Chi2(16687867) = 17.87   -> reject   (DES/X2) 
+	 Chi2(20629097) = 22.11   -> reject   (DES/X3) 
+	 Chi2(10290667) = 29.85   -> reject   (DES/X3) 
+	 Chi2(9413426) = 18.55   -> reject   (DES/C2) 
+	 Chi2(68238) = 16.14   -> reject   (DES/X3) 
+	 Chi2(9760727) = 20.73   -> reject   (DES/C1+C3) 
+	 Chi2(12078837) = 16.18   -> reject   (DES/C3) 
+	 Chi2(12449930) = 16.96   -> reject   (DES/C3) 
+	 Chi2(1377791) = 18.54   -> reject   (DES/C3) 
+	 Chi2(30009203) = 19.10   -> reject   (DES/X2) 
+	 Chi2(26570744) = 16.67   -> reject   (DES/E1) 
+	 Chi2(17655492) = 17.40   -> reject   (DES/C3) 
+	 Chi2(35185775) = 25.48   -> reject   (DES/S1) 
+	 Chi2(31078693) = 18.83   -> reject   (DES/C3) 
+	 Chi2(31349225) = 18.13   -> reject   (DES/C3) 
+	 Chi2(35591931) = 21.02   -> reject   (DES/C3) 
+	 Chi2(29445414) = 79.03   -> reject   (DES/X3) 
+	 Chi2(6126911) = 22.86   -> reject   (DES/C2) 
+	 Chi2(14859711) = 22.96   -> reject   (DES/C1) 
+	 Chi2(6832100) = 25.73   -> reject   (DES/C1) 
+	 Chi2(18039745) = 19.22   -> reject   (DES/X1) 
+	 Chi2(25824717) = 18.44   -> reject   (DES/C1) 
+	 Chi2(2144821) = 40.02   -> reject   (DES/C3) 
+	 Chi2(22303766) = 25.16   -> reject   (DES/C1) 
+	 Chi2(40682642) = 21.30   -> reject   (DES/C3) 
+	 Chi2(40528031) = 24.47   -> reject   (DES/S2) 
+	 Chi2(33663105) = 16.73   -> reject   (DES/C3) 
+	 Chi2(11560886) = 75.39   -> reject   (DES/C3) 
+	 Chi2(40093528) = 29.96   -> reject   (DES/E1) 
+	 Chi2(40157041) = 18.11   -> reject   (DES/C3) 
+	 Chi2(16946461) = 173.96   -> reject   (DES/X1) 
+	 Chi2(618140) = 97.16   -> reject   (DES/X3) 
+	 Chi2(36436697) = 18.06   -> reject   (DES/S2) 
+	 Chi2(19607806) = 17.85   -> reject   (DES/C1) 
+	 Chi2(5982371) = 22.89   -> reject   (DES/E2) 
+	 Chi2(3931519) = 16.20   -> reject   (DES/E1) 
+	 Chi2(23805675) = 19.91   -> reject   (DES/C3) 
+	 Chi2(7687544) = 19.96   -> reject   (DES/S1) 
+	 Chi2(22235350) = 20.35   -> reject   (DES/C2+C3) 
+	 Chi2(33220619) = 33.36   -> reject   (DES/C3) 
+	 Chi2(5950557) = 19.25   -> reject   (DES/X3) 
+	 Chi2(15466323) = 19.41   -> reject   (DES/E1) 
+	 Chi2(23267917) = 16.47   -> reject   (DES/E1) 
+	 Chi2(4041651) = 17.45   -> reject   (DES/S1) 
+	 Chi2(23597288) = 44.28   -> reject   (DES/X3) 
+	 Chi2(41756792) = 19.10   -> reject   (DES/X1) 
+	 Chi2(40732982) = 27.15   -> reject   (DES/S2) 
+	 Chi2(12217636) = 68.85   -> reject   (DES/C3) 
+	 Chi2(14048749) = 247.47   -> reject   (DES/X3) 
+	 Chi2(28615664) = 20.48   -> reject   (DES/C1) 
+	 Chi2(6683736) = 21.01   -> reject   (DES/C3) 
+	 Chi2(26316313) = 20.22   -> reject   (DES/X1) 
+	 Chi2(27996524) = 24.62   -> reject   (DES/X3) 
+	 Chi2(6874532) = 24.96   -> reject   (DES/X3) 
+	 Chi2(39366416) = 18.93   -> reject   (DES/C3) 
+	 Chi2(32612340) = 18.42   -> reject   (DES/X2) 
+	 Chi2(38709347) = 16.48   -> reject   (DES/C2+C3) 
+	 Chi2(31355479) = 21.20   -> reject   (DES/C1) 
+	 Chi2(36639477) = 177.87   -> reject   (DES/X3) 
+	 Chi2(1512627) = 18.15   -> reject   (DES/C2) 
+	 Chi2(29159353) = 136.61   -> reject   (DES/C3) 
+	 Chi2(37456349) = 18.91   -> reject   (DES/X1) 
+	 Chi2(1379959) = 19.17   -> reject   (DES/C2) 
+	 Chi2(27428015) = 21.40   -> reject   (DES/S2) 
+	 Chi2(24865253) = 24.60   -> reject   (DES/X3) 
+	 Chi2(39711125) = 19.40   -> reject   (DES/X3) 
+	 Chi2(12238038) = 16.31   -> reject   (DES/C3) 
+	 Chi2(33121997) = 16.48   -> reject   (DES/C1) 
+	 Chi2(39507119) = 29.58   -> reject   (DES/X3) 
+	 Chi2(26567884) = 49.85   -> reject   (DES/X3) 
+	 Chi2(34718007) = 33.64   -> reject   (DES/X1) 
+	 Chi2(36132811) = 29.38   -> reject   (DES/C2) 
+	 Chi2(2270069) = 16.77   -> reject   (DES/X1) 
+	 Chi2(37712417) = 18.22   -> reject   (DES/X1) 
+	 Chi2(42091088) = 20.94   -> reject   (DES/E1) 
+	 Chi2(416190) = 27.76   -> reject   (DES/C3) 
+	 Chi2(3739442) = 128.39   -> reject   (DES/C3) 
+	 Chi2(18827358) = 20.43   -> reject   (DES/E2) 
+	 Chi2(30731001) = 211.51   -> reject   (DES/C3) 
+	 Chi2(27243643) = 47.62   -> reject   (DES/C3) 
+	 Chi2(2522724) = 22.45   -> reject   (DES/C1) 
+	 Chi2(43001730) = 19.00   -> reject   (DES/X1) 
+	 Chi2(25393926) = 16.76   -> reject   (DES/S1) 
+	 Chi2(27218036) = 32.83   -> reject   (DES/C1) 
+	 Chi2(19986670) = 20.60   -> reject   (DES/C3) 
+	 Chi2(20974917) = 160.53   -> reject   (DES/X3) 
+	 Chi2(24395860) = 28.87   -> reject   (DES/X3) 
+	 Chi2(9154021) = 25.96   -> reject   (DES/C3) 
+	 Chi2(29014437) = 16.73   -> reject   (DES/C1) 
+	 Chi2(36946717) = 16.10   -> reject   (DES/C2) 
+	 Chi2(8573991) = 16.91   -> reject   (DES/C3) 
+	 Chi2(29571531) = 22.35   -> reject   (DES/C1) 
+	 Chi2(25773822) = 16.22   -> reject   (DES/X3) 
+	 Chi2(2280414) = 32.07   -> reject   (DES/X2) 
+	 Chi2(14785419) = 17.11   -> reject   (DES/X2) 
+	 Chi2(19328340) = 17.82   -> reject   (DES/C3) 
+	 Chi2(31620392) = 17.95   -> reject   (DES/C3) 
+	 Chi2(2813931) = 151.55   -> reject   (DES/C3) 
+	 Chi2(16732517) = 18.99   -> reject   (DES/E1+E2) 
+	 Chi2(6266932) = 19.64   -> reject   (DES/X3) 
+	 Chi2(221059) = 17.17   -> reject   (DES/C2+C3) 
+	 Chi2(5317158) = 28.69   -> reject   (DES/C3) 
+	 Chi2(22672112) = 124.74   -> reject   (DES/X2) 
+	 Chi2(4882709) = 18.65   -> reject   (DES/C1) 
+	 Chi2(1735067) = 23.35   -> reject   (DES/S2) 
+	 Chi2(27729323) = 25.29   -> reject   (DES/X3) 
+	 Chi2(11738616) = 20.86   -> reject   (DES/X3) 
+	 Chi2(40256995) = 22.09   -> reject   (DES/E2) 
+	 Chi2(43196476) = 19.84   -> reject   (DES/C3) 
+	 Chi2(30863526) = 16.30   -> reject   (DES/E1) 
+	 Chi2(13694641) = 17.37   -> reject   (DES/C2) 
+	 Chi2(30481662) = 20.36   -> reject   (DES/C3) 
+	 Chi2(36705868) = 18.93   -> reject   (DES/C2) 
+	 Chi2(4227840) = 16.89   -> reject   (DES/C3) 
+	 Chi2(38720236) = 24.05   -> reject   (DES/X1) 
+	 Chi2(3810013) = 17.10   -> reject   (DES/C2) 
+	 Chi2(6211708) = 29.99   -> reject   (DES/X3) 
+	 Chi2(9004606) = 17.36   -> reject   (DES/X3) 
+	 Chi2(5746349) = 16.41   -> reject   (DES/C3) 
+	 Chi2(35670648) = 16.16   -> reject   (DES/X2) 
+	 Chi2(23825841) = 22.70   -> reject   (DES/C3) 
+	 Chi2(11989767) = 17.55   -> reject   (DES/C2) 
+	 Chi2(30875172) = 25.21   -> reject   (DES/X3) 
+	 Chi2(17175708) = 23.22   -> reject   (DES/X3) 
+	 Chi2(19554078) = 22.96   -> reject   (DES/X1) 
+	 Chi2(23415989) = 30.72   -> reject   (DES/C3) 
+	 Chi2(35987209) = 52.21   -> reject   (DES/S2) 
+	 Chi2(38038240) = 19.43   -> reject   (DES/C3) 
+	 Chi2(39418438) = 17.29   -> reject   (DES/S2) 
+	 Chi2(22236286) = 20.07   -> reject   (DES/S2) 
+	 Chi2(19341088) = 20.69   -> reject   (DES/C3) 
+	 Chi2(13977686) = 22.34   -> reject   (DES/X3) 
+	 Chi2(3828900) = 20.35   -> reject   (DES/E1) 
+	 Chi2(37302404) = 16.21   -> reject   (DES/E2) 
+	 Chi2(35468196) = 29.50   -> reject   (DES/E2) 
+	 Chi2(27669864) = 130.93   -> reject   (DES/C3) 
+	 Chi2(17068579) = 31.19   -> reject   (DES/X1) 
+	 Chi2(31521846) = 21.46   -> reject   (DES/X3) 
+	 Chi2(22836152) = 106.33   -> reject   (DES/C3) 
+	 Chi2(44116400) = 19.17   -> reject   (DES/X1) 
+	 Chi2(3826492) = 16.36   -> reject   (DES/X3) 
+	 Chi2(14581911) = 19.22   -> reject   (DES/C3) 
+	 Chi2(4200204) = 20.19   -> reject   (DES/C3) 
+	 Chi2(8968341) = 16.71   -> reject   (DES/X1+X3) 
+	 Chi2(12191272) = 20.00   -> reject   (DES/C3) 
+	 Chi2(28730705) = 16.46   -> reject   (DES/C2) 
+	 Chi2(28171814) = 16.93   -> reject   (DES/C3) 
+	 Chi2(3048713) = 31.31   -> reject   (DES/C3) 
+	 Chi2(44477396) = 20.63   -> reject   (DES/C2) 
+	 Chi2(36310222) = 17.76   -> reject   (DES/X3) 
+	 Chi2(24975824) = 18.95   -> reject   (DES/C3) 
+	 Chi2(12603337) = 26.84   -> reject   (DES/S2) 
+   chi2max rejects TOTAL: 242 events 
+
+ Setup z-bins again after chi2max cut: 
+ z= 0.03000 -  0.12850  NZBIN(TOT,CUTS)=   671,   671   ISFLOAT=1
+ z= 0.12850 -  0.22700  NZBIN(TOT,CUTS)=  3211,  3211   ISFLOAT=1
+ z= 0.22700 -  0.32550  NZBIN(TOT,CUTS)=  7015,  7015   ISFLOAT=1
+ z= 0.32550 -  0.42400  NZBIN(TOT,CUTS)= 10832, 10832   ISFLOAT=1
+ z= 0.42400 -  0.52250  NZBIN(TOT,CUTS)= 13561, 13561   ISFLOAT=1
+ z= 0.52250 -  0.62100  NZBIN(TOT,CUTS)= 13076, 13076   ISFLOAT=1
+ z= 0.62100 -  0.71950  NZBIN(TOT,CUTS)=  9175,  9175   ISFLOAT=1
+ z= 0.71950 -  0.81800  NZBIN(TOT,CUTS)=  4856,  4856   ISFLOAT=1
+ z= 0.81800 -  0.91650  NZBIN(TOT,CUTS)=  3357,  3357   ISFLOAT=1
+ z= 0.91650 -  1.01500  NZBIN(TOT,CUTS)=  1919,  1919   ISFLOAT=1
+ z= 1.01500 -  1.11350  NZBIN(TOT,CUTS)=  1019,  1019   ISFLOAT=1
+ z= 1.11350 -  1.21200  NZBIN(TOT,CUTS)=   287,   287   ISFLOAT=1
+ z= 1.21200 -  1.31050  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.31050 -  1.40900  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.40900 -  1.50750  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.50750 -  1.60600  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.60600 -  1.70450  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.70450 -  1.80300  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.80300 -  1.90150  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ z= 1.90150 -  2.00000  NZBIN(TOT,CUTS)=     0,     0   ISFLOAT=0
+ --> Use 12 of 20 z-bins in fit.
+
+ Finished applyCut_chi2max
+
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+ DATA STAT SUMMARY: 1624749(TOTAL) = 68979(ACCEPT) + 1555770(REJECT) 
+ DATA NCUT[2**01=    2] =  24694(ALL)    469(onlyCut)   [x1] 
+ DATA NCUT[2**02=    4] = 145327(ALL)    952(onlyCut)   [c] 
+ DATA NCUT[2**06=   64] = 316633(ALL)  13069(onlyCut)   [CUTWIN] 
+ DATA NCUT[2**10= 1024] = 1539564(ALL) 1126297(onlyCut)   [GENPDF rewgt] 
+ DATA NCUT[2**22=4194304] =    242(ALL)    242(onlyCut)   [CHI2] 
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+SUBPROCESS_SIM_PRESCALE: force prescale=13.8 to get NEVT_SIM ~ 5000 
+
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+ DATA STAT SUMMARY: 1624749(TOTAL) = 5076(ACCEPT) + 1619673(REJECT) 
+ DATA NCUT[2**01=    2] =  24694(ALL)     34(onlyCut)   [x1] 
+ DATA NCUT[2**02=    4] = 145327(ALL)     59(onlyCut)   [c] 
+ DATA NCUT[2**06=   64] = 316633(ALL)    930(onlyCut)   [CUTWIN] 
+ DATA NCUT[2**10= 1024] = 1539564(ALL)  81470(onlyCut)   [GENPDF rewgt] 
+ DATA NCUT[2**11= 2048] = 1507086(ALL)  63903(onlyCut)   [sim Prescale] 
+ DATA NCUT[2**22=4194304] =    242(ALL)     17(onlyCut)   [CHI2] 
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+
+# -*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+    REPEAT fit: last a/b/sigint/redchi2=0.185/2.44/0.110/1.307 --> next sigint=0.120
+# -*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+
+
+# -*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+    REPEAT fit: last a/b/sigint/redchi2=0.179/2.40/0.120/1.213 --> next sigint=0.143
+# -*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+
+
+# -*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+    REPEAT fit: last a/b/sigint/redchi2=0.167/2.32/0.143/1.027 --> next sigint=0.146
+# -*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+
+	 Final sigint value = 0.146  for chi2(Ia)/dof=1.0029
+
+**********Fit summary**************
+MNCOV status=3 (Full accurate COV matrix (normal convergence))
+-2lnL/dof = 5076.64/5062 =  1.003 (5076 SN) 
+
+Final parameter values and MIGRAD errors.
+par  0      blank       0.0000         fixed
+par  1 ( 1) alpha0      1.6559e-01 +/- 3.5632e-03  Global CC= 0.276 
+par  2 ( 2) beta0       2.3087e+00 +/- 3.2096e-02  Global CC= 0.321 
+par  3      alpha1      0.0000         fixed
+par  4      beta1       0.0000         fixed
+par  5      gamma0      0.0000         fixed
+par  6      gamma1      0.0000         fixed
+par  7      logmass_ce 10.0000         fixed
+par  8      logmass_ta  0.0200         fixed
+par  9      Omega_L     0.7000         fixed
+par 10      Omega_k     0.0000         fixed
+par 11      w0         -1.0000         fixed
+par 12      wa          0.0000         fixed
+par 13      scalePCC    1.0000         fixed
+par 14      sigint      0.1000         fixed
+par 15      alphaHost   0.0000         fixed
+par 16      betaHost    0.0000         fixed
+par 17      H11mucc0    0.0000         fixed
+par 18      H11mucc1    0.1000         fixed
+par 19      H11mucc2    0.1000         fixed
+par 20      H11sigcc0   0.1000         fixed
+par 21      H11sigcc1   0.0000         fixed
+par 22      H11sigcc2   0.0000         fixed
+par 23      blank4      0.0000         fixed
+par 24 ( 3) m0_00      -2.9999e+01 +/- 1.8964e-02  Global CC= 0.173 
+par 25 ( 4) m0_01      -3.0014e+01 +/- 9.9818e-03  Global CC= 0.104 
+par 26 ( 5) m0_02      -3.0007e+01 +/- 6.4771e-03  Global CC= 0.232 
+par 27 ( 6) m0_03      -3.0013e+01 +/- 5.6976e-03  Global CC= 0.209 
+par 28 ( 7) m0_04      -3.0025e+01 +/- 5.7052e-03  Global CC= 0.154 
+par 29 ( 8) m0_05      -3.0039e+01 +/- 6.4969e-03  Global CC= 0.249 
+par 30 ( 9) m0_06      -3.0076e+01 +/- 8.2804e-03  Global CC= 0.149 
+par 31 (10) m0_07      -3.0035e+01 +/- 1.1595e-02  Global CC= 0.110 
+par 32 (11) m0_08      -3.0048e+01 +/- 1.5316e-02  Global CC= 0.142 
+par 33 (12) m0_09      -3.0070e+01 +/- 2.2824e-02  Global CC= 0.119 
+par 34 (13) m0_10      -3.0070e+01 +/- 3.4244e-02  Global CC= 0.102 
+par 35 (14) m0_11      -3.0132e+01 +/- 7.6417e-02  Global CC= 0.022 
+par 36      m0_12      -30.0173         fixed
+par 37      m0_13      -30.0173         fixed
+par 38      m0_14      -30.0173         fixed
+par 39      m0_15      -30.0173         fixed
+par 40      m0_16      -30.0173         fixed
+par 41      m0_17      -30.0173         fixed
+par 42      m0_18      -30.0173         fixed
+par 43      m0_19      -30.0173         fixed
+Average mag0 offset = -30.034003  (wgted by NSN per z bin)
+
+# Reduced COV matrix:
+# alpha0      1.000 
+# beta0      -0.066  1.000 
+# m0_00      -0.018 -0.009  1.000 
+# m0_01      -0.055 -0.005  0.002  1.000 
+# m0_02      -0.110 -0.025  0.165 -0.056  1.000 
+# m0_03      -0.083  0.153 -0.030 -0.034 -0.088  1.000 
+# m0_04      -0.111  0.044 -0.031 -0.013 -0.025 -0.039  1.000 
+# m0_05      -0.155  0.186 -0.024 -0.023 -0.009  0.031  0.085  1.000 
+# m0_06      -0.095  0.118 -0.000  0.007  0.013  0.017  0.006  0.032  1.000 
+# m0_07      -0.049  0.097  0.000  0.001  0.000  0.015  0.008  0.005  0.016  1.000 
+# m0_08      -0.063  0.118  0.025  0.014  0.017  0.042  0.021  0.055 -0.000 -0.004  1.000 
+# m0_09      -0.070  0.099  0.012  0.006  0.003  0.021  0.019  0.026  0.015  0.008  0.013  1.000 
+# m0_10      -0.037  0.092 -0.016  0.001  0.006  0.009 -0.004  0.037  0.018  0.010  0.011 -0.002  1.000 
+# m0_11       0.007  0.016  0.002  0.003  0.004  0.007  0.005  0.001 -0.004  0.005  0.004  0.004  0.001  1.000 
+#
+
+
+ Open output file with  cutmask_write=0 : 
+	 OUT_SIM.FITRES 
+ Wrote 5076 SN  (5076/1624749 used in fit) 
