@@ -696,7 +696,7 @@ def dffixer(df, RET, ifdata):
     # END dffixer
 
 
-def LL_Creator(inparr, returnall=False, RMS_weight=1):
+def compute_and_sum_loglikelihoods(inparr, returnall=False, RMS_weight=1):
     """
     Calculate log-likelihood by comparing data and simulation observables.
 
@@ -723,15 +723,15 @@ def LL_Creator(inparr, returnall=False, RMS_weight=1):
         If returnall is False:
             float: Total log-likelihood (sum of all components)
         If returnall is True:
-            tuple: (LL_dict, datacount_dict, simcount_dict, poisson_dict)
-                   LL_dict: Individual chi-squared contributions by observable name
+            tuple: (ll_dict, datacount_dict, simcount_dict, poisson_dict)
+                   ll_dict: Individual chi-squared contributions by observable name
                    datacount_dict: Data values for each observable
                    simcount_dict: Simulation values for each observable
                    poisson_dict: Poisson errors for each observable
     """
     # Always create detail dicts (minimal memory overhead)
     # Only return them if returnall=True at the end
-    LL_dict = defaultdict(float)
+    ll_dict = defaultdict(float)
     datacount_dict = defaultdict(float)
     simcount_dict = defaultdict(float)
     poisson_dict = defaultdict(float)
@@ -739,21 +739,30 @@ def LL_Creator(inparr, returnall=False, RMS_weight=1):
     # ========== Parameter likelihood terms ==========
     # Beta (color-luminosity relation)
     logger.debug(
-        f"real beta, sim beta, real beta error: {_WORKER_REALDATA.beta}, {_WORKER_SALT2MU_CONNECTION.beta}, {_WORKER_REALDATA.betaerr}"
+        f"real beta, sim beta, real beta error: {_WORKER_REALDATA.salt2mu_results['beta']}, {_WORKER_SALT2MU_CONNECTION.salt2mu_results['beta']}, {_WORKER_REALDATA.salt2mu_results['betaerr']}"
     )
 
-    LL_dict["beta"] = (
+    ll_dict["beta"] = (
         -0.5
-        * ((_WORKER_REALDATA.beta - _WORKER_SALT2MU_CONNECTION.beta) / _WORKER_REALDATA.betaerr)
+        * (
+            (
+                _WORKER_REALDATA.salt2mu_results["beta"]
+                - _WORKER_SALT2MU_CONNECTION.salt2mu_results["beta"]
+            )
+            / _WORKER_REALDATA.salt2mu_results["betaerr"]
+        )
         ** 2
     )
 
     # Intrinsic scatter
-    LL_dict["sigint"] = (
+    ll_dict["sigint"] = (
         -0.5
         * (
-            (_WORKER_REALDATA.sigint - _WORKER_SALT2MU_CONNECTION.sigint)
-            / _WORKER_REALDATA.siginterr
+            (
+                _WORKER_REALDATA.salt2mu_results["sigint"]
+                - _WORKER_SALT2MU_CONNECTION.salt2mu_results["sigint"]
+            )
+            / _WORKER_REALDATA.salt2mu_results["siginterr"]
         )
         ** 2
     )
@@ -767,7 +776,7 @@ def LL_Creator(inparr, returnall=False, RMS_weight=1):
     data_color, sim_color = inparr["color_hist"]
     if len(data_color) > 0 and len(sim_color) > 0:
         datacount_color, simcount_color, poisson_color, ww = normhisttodata(data_color, sim_color)
-        LL_dict["color_hist"] = -0.5 * np.sum(
+        ll_dict["color_hist"] = -0.5 * np.sum(
             (datacount_color - simcount_color) ** 2 / poisson_color**2
         )
         datacount_dict["color_hist"] = datacount_color
@@ -778,7 +787,7 @@ def LL_Creator(inparr, returnall=False, RMS_weight=1):
     data_x1, sim_x1 = inparr["x1_hist"]
     if len(data_x1) > 0 and len(sim_x1) > 0:
         datacount_x1, simcount_x1, poisson_x1, ww = normhisttodata(data_x1, sim_x1)
-        LL_dict["x1_hist"] = -0.5 * np.sum((datacount_x1 - simcount_x1) ** 2 / poisson_x1**2)
+        ll_dict["x1_hist"] = -0.5 * np.sum((datacount_x1 - simcount_x1) ** 2 / poisson_x1**2)
         datacount_dict["x1_hist"] = datacount_x1
         simcount_dict["x1_hist"] = simcount_x1
         poisson_dict["x1_hist"] = poisson_x1
@@ -786,7 +795,7 @@ def LL_Creator(inparr, returnall=False, RMS_weight=1):
     # High-mass MURES
     data_mures_high, sim_mures_high = inparr["mures_high"]
     poisson_mures_high = inparr["rms_high"][0] / np.sqrt(nevt_high)
-    LL_dict["mures_high"] = -0.5 * np.sum(
+    ll_dict["mures_high"] = -0.5 * np.sum(
         (data_mures_high - sim_mures_high) ** 2 / poisson_mures_high**2
     )
     datacount_dict["mures_high"] = data_mures_high
@@ -796,7 +805,7 @@ def LL_Creator(inparr, returnall=False, RMS_weight=1):
     # Low-mass MURES
     data_mures_low, sim_mures_low = inparr["mures_low"]
     poisson_mures_low = inparr["rms_low"][0] / np.sqrt(nevt_low)
-    LL_dict["mures_low"] = -0.5 * np.sum(
+    ll_dict["mures_low"] = -0.5 * np.sum(
         (data_mures_low - sim_mures_low) ** 2 / poisson_mures_low**2
     )
     datacount_dict["mures_low"] = data_mures_low
@@ -806,7 +815,7 @@ def LL_Creator(inparr, returnall=False, RMS_weight=1):
     # High-mass RMS
     data_rms_high, sim_rms_high = inparr["rms_high"]
     poisson_rms_high = data_rms_high / np.sqrt(2 * nevt_high)
-    LL_dict["rms_high"] = (
+    ll_dict["rms_high"] = (
         -0.5 * np.sum((data_rms_high - sim_rms_high) ** 2 / poisson_rms_high**2) * RMS_weight
     )
     datacount_dict["rms_high"] = data_rms_high
@@ -816,7 +825,7 @@ def LL_Creator(inparr, returnall=False, RMS_weight=1):
     # Low-mass RMS
     data_rms_low, sim_rms_low = inparr["rms_low"]
     poisson_rms_low = data_rms_low / np.sqrt(2 * nevt_low)
-    LL_dict["rms_low"] = (
+    ll_dict["rms_low"] = (
         -0.5 * np.sum((data_rms_low - sim_rms_low) ** 2 / poisson_rms_low**2) * RMS_weight
     )
     datacount_dict["rms_low"] = data_rms_low
@@ -826,7 +835,7 @@ def LL_Creator(inparr, returnall=False, RMS_weight=1):
     # Calculate total log-likelihood with error checking
     # Check for NaN or inf values in any component
     invalid_components = []
-    for key, value in LL_dict.items():
+    for key, value in ll_dict.items():
         if not np.isfinite(value) or (
             isinstance(value, np.ndarray) and not np.all(np.isfinite(value))
         ):
@@ -834,18 +843,18 @@ def LL_Creator(inparr, returnall=False, RMS_weight=1):
 
     if invalid_components:
         logger.warning(f"Invalid (NaN/inf) likelihood components: {invalid_components}")
-        logger.warning(f"LL_dict values: {LL_dict}")
+        logger.warning(f"ll_dict values: {ll_dict}")
         # Return -inf for MCMC rejection, but still provide detail dicts if requested
         if returnall:
-            return LL_dict, datacount_dict, simcount_dict, poisson_dict
+            return ll_dict, datacount_dict, simcount_dict, poisson_dict
         else:
             return -np.inf
 
     if returnall:
-        return sum(LL_dict.values()), LL_dict, datacount_dict, simcount_dict, poisson_dict
+        return sum(ll_dict.values()), ll_dict, datacount_dict, simcount_dict, poisson_dict
 
-    return sum(LL_dict.values())
-    # END LL_Creator
+    return sum(ll_dict.values())
+    # END compute_and_sum_loglikelihoods
 
 
 def subprocess_to_snana(OUTDIR, snana_mapping):
@@ -1084,7 +1093,7 @@ def log_likelihood(theta, returnall: bool = False, debug: bool = False):
     1. Writes PDF functions to file via connection.write_generic_PDF()
     2. Calls SALT2mu.exe to reweight simulation with those PDFs
     3. Parses binned output from SALT2mu (color histograms, MURES, RMS by mass)
-    4. Compares reweighted simulation to real data via LL_Creator()
+    4. Compares reweighted simulation to real data via compute_and_sum_loglikelihoods()
 
     Args:
         theta: Array of parameter values (length = ndim)
@@ -1096,7 +1105,7 @@ def log_likelihood(theta, returnall: bool = False, debug: bool = False):
 
     Returns:
         float: Log-likelihood value
-        If returnall=True: tuple of (LL_dict, datacount_dict, simcount_dict, poisson_dict)
+        If returnall=True: tuple of (ll_dict, datacount_dict, simcount_dict, poisson_dict)
         Returns -inf if:
             - MAXPROB > 1.001 (PDF hitting boundary of bounding function)
             - Beta is NaN (SALT2mu fit failed)
@@ -1125,20 +1134,22 @@ def log_likelihood(theta, returnall: bool = False, debug: bool = False):
     # Run SALT2mu with these PDFs
     _WORKER_SALT2MU_CONNECTION.next_iter(theta, theta_index_dic, _CONFIG)
 
-    if _WORKER_SALT2MU_CONNECTION.maxprob > 1.001:
+    if _WORKER_SALT2MU_CONNECTION.salt2mu_results["maxprob"] > 1.001:
         logger.debug(
-            f"{_WORKER_SALT2MU_CONNECTION.maxprob} MAXPROB parameter greater than 1! Coming up against the bounding function! Returning -np.inf to account, caught right after connection"
+            f"{_WORKER_SALT2MU_CONNECTION.salt2mu_results['maxprob']} MAXPROB parameter greater than 1! Coming up against the bounding function! Returning -np.inf to account, caught right after connection"
         )
         return -np.inf
 
     # ANALYSIS returns c, highres, lowres, rms
     logger.debug("Right before calculation")
-    bindf = (
-        _WORKER_SALT2MU_CONNECTION.bindf.dropna()
-    )  # THIS IS THE PANDAS DATAFRAME OF THE OUTPUT FROM SALT2mu
+    bindf = _WORKER_SALT2MU_CONNECTION.salt2mu_results[
+        "bindf"
+    ].dropna()  # THIS IS THE PANDAS DATAFRAME OF THE OUTPUT FROM SALT2mu
     sim_vals = dffixer(bindf, "ANALYSIS", False)
 
-    realbindf = _WORKER_REALDATA.bindf.dropna()  # same for the real data (was a global variable)
+    realbindf = _WORKER_REALDATA.salt2mu_results[
+        "bindf"
+    ].dropna()  # same for the real data (was a global variable)
     real_vals = dffixer(realbindf, "ANALYSIS", True)
 
     # Build dictionary pairing data and simulation values
@@ -1164,7 +1175,7 @@ def log_likelihood(theta, returnall: bool = False, debug: bool = False):
 
     logger.debug("Right before calling LL Creator")
 
-    out_result = LL_Creator(inparr, returnall=returnall)
+    out_result = compute_and_sum_loglikelihoods(inparr, returnall=returnall)
     # print(
     #     "for ",
     #     pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT),
@@ -1451,13 +1462,3 @@ def MCMC(
 
     return sampler
     # END MCMC
-
-
-# =================================================================================================
-# CLI Entry Point (for backwards compatibility when running as script)
-# =================================================================================================
-
-if __name__ == "__main__":
-    from dust2dusty.cli import main
-
-    sys.exit(main())

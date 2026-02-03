@@ -107,7 +107,7 @@ class SALT2mu:
             self.command = self.command + " write_yaml=1"
 
         self.logger.info("Command being run: " + self.command)
-        self.data = False
+        self.salt2mu_results = {}
 
         if realdata:  # this is awful )
             self.logger.info("Running realdata=True")
@@ -211,14 +211,14 @@ class SALT2mu:
         """
         self.SALT2muoutputs.seek(0)  # sets pointer to top of file
         text = self.SALT2muoutputs.read()  # reads in the text
-        self.alpha = float(text.split("alpha0")[1].split()[1])
-        self.alphaerr = float(text.split("alpha0")[1].split()[3])
-        self.beta = float(text.split("beta0")[1].split()[1])
-        self.betaerr = float(text.split("beta0")[1].split()[3])
-        self.maxprob = float(text.split("MAXPROB_RATIO")[1].split()[1])
-        self.headerinfo = self.NAndR(StringIO(text))
-        self.sigint = float(text.split("sigint")[1].split()[1])
-        self.bindf = pd.read_csv(
+        self.salt2mu_results['alphaerr']' = float(text.split("alpha0")[1].split()[3])
+        self.salt2mu_results['alpha'] = float(text.split("alpha0")[1].split()[1])
+        self.salt2mu_results['beta'] = float(text.split("beta0")[1].split()[1])
+        self.salt2mu_results['betaerr']' = float(text.split("beta0")[1].split()[3])
+        self.salt2mu_results['maxprob']' = float(text.split("MAXPROB_RATIO")[1].split()[1])
+        self.salt2mu_results['headerinfo'] = self.NAndR(StringIO(text))
+        self.salt2mu_results['sigint']' = float(text.split("sigint")[1].split()[1])
+        self.salt2mu_results['bindf']' = pd.read_csv(
             StringIO(text),
             header=None,
             skiprows=self.headerinfo[1],
@@ -226,7 +226,7 @@ class SALT2mu:
             delim_whitespace=True,
             comment="#",
         )
-        self.siginterr = 0.0036  # DEFAULT VALUE
+        self.salt2mu_results['siginterr'] = 0.0036  # DEFAULT VALUE
         return True
         # END getData
 
