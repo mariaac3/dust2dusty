@@ -372,9 +372,9 @@ def main():
         MCMC,
         _init_worker,
         init_dust2dust,
-        input_cleaner,
         log_probability,
     )
+    from dust2dusty.utils import input_cleaner
 
     # Parse arguments and load configuration
     args = get_args()
@@ -397,6 +397,7 @@ def main():
             config.inp_params,
             config.paramshapesdict,
             config.splitdict,
+            config.DISTRIBUTION_PARAMETERS,
             config.parameter_initialization,
             config.PARAMETER_OVERRIDES,
             walkfactor=3,

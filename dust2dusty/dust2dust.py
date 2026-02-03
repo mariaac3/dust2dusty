@@ -36,20 +36,15 @@ import os
 from collections import defaultdict
 from pathlib import Path
 
-
-def set_numpy_threads(n_threads=4):
-    """Set number of threads for numpy operations"""
-    os.environ["OMP_NUM_THREADS"] = str(n_threads)
-    os.environ["OPENBLAS_NUM_THREADS"] = str(n_threads)
-    os.environ["MKL_NUM_THREADS"] = str(n_threads)
-    os.environ["VECLIB_MAXIMUM_THREADS"] = str(n_threads)
-    os.environ["NUMEXPR_NUM_THREADS"] = str(n_threads)
-
+from dust2dusty.utils import (
+    normhisttodata,
+    pconv,
+    set_numpy_threads,
+)
 
 # Call BEFORE importing numpy
 set_numpy_threads(4)
 
-import itertools
 from multiprocessing import Pool, cpu_count, current_process
 
 import emcee
@@ -58,16 +53,29 @@ import numpy as np
 from dust2dusty.logging import get_logger
 from dust2dusty.salt2mu import SALT2mu
 
-JOBNAME_SALT2mu = "SALT2mu.exe"  # public default code
-ncbins = 6
+# =============================================================================
+# GLOBAL VARIABLES & CONSTANTS
+# =============================================================================
 
-# Module-level logger (initialized in main via setup_logging)
+# Constants
+JOBNAME_SALT2mu = "SALT2mu.exe"  # SALT2mu executable name
+ncbins = 6  # Number of color bins
+
+# Module-level logger
 logger = get_logger()
 
+# Worker-local global variables for multiprocessing
+# These are set by _init_worker() for each Pool worker process
+_WORKER_REALDATA = None  # SALT2mu connection for real data
+_WORKER_SALT2MU_CONNECTION = None  # SALT2mu connection for simulation
+_WORKER_DEBUGFLAG = False  # Debug flag for worker process
+_WORKER_INDEX = None  # Worker process index
+_CONFIG = None  # Configuration object
 
-# =======================================================
-################### FUNCTIONS ##########################
-# =======================================================
+
+# =============================================================================
+# PARAMETER CONVERSION HELPERS
+# =============================================================================
 
 
 def thetaconverter(theta):
@@ -92,7 +100,10 @@ def thetaconverter(theta):
     """
     thetadict = {}
     extparams = pconv(
-        _CONFIG.inp_params, _CONFIG.paramshapesdict, _CONFIG.splitdict
+        _CONFIG.inp_params,
+        _CONFIG.paramshapesdict,
+        _CONFIG.splitdict,
+        _CONFIG.DISTRIBUTION_PARAMETERS,
     )  # expanded list of all variables. len is ndim.
     for p in _CONFIG.inp_params:
         thetalist = []
@@ -100,8 +111,7 @@ def thetaconverter(theta):
             if p in ep:  # for instance, if 'c' is in 'c_l', then this records that position.
                 thetalist.append(n)
         thetadict[p] = thetalist
-    return thetadict  # key gives location of relevant parameters in extparams
-    # END thetaconverter
+    return thetadict
 
 
 def thetawriter(theta, key, names=False):
@@ -126,112 +136,7 @@ def thetawriter(theta, key, names=False):
     if names:
         return names[lowbound:highbound]
     else:
-        return theta[
-            lowbound:highbound
-        ]  # Returns theta in the range of first to last index for relevant parameter. For example, inp_param = ['c', 'RV'], thetawriter(theta, 'c') would give theta[0:2] which is ['c_m', 'c_std']
-
-
-def input_cleaner(
-    INP_PARAMS,
-    PARAMSHAPESDICT,
-    SPLITDICT,
-    PARAMETER_INITIALIZATION,
-    parameter_overrides,
-    walkfactor=2,
-):
-    """
-    Initialize MCMC walker starting positions with appropriate constraints.
-
-    Generates initial walker positions for emcee sampler, ensuring all parameters
-    start within their valid bounds and with appropriate spreads.
-
-    Args:
-        INP_PARAMS: List of parameter names to fit (e.g., ['c', 'RV', 'EBV'])
-        PARAMETER_INITIALIZATION: Dictionary containing initialization info for each expanded parameter:
-                   {param_name: [mean, std, require_positive, [lower_bound, upper_bound]]}
-        parameter_overrides: Dictionary of parameters to fix (not fit)
-        walkfactor: Multiplier for number of walkers (nwalkers = ndim * walkfactor, default: 2)
-
-    Returns:
-        tuple: (pos, nwalkers, ndim)
-               pos: array of shape (nwalkers, ndim) with initial walker positions
-               nwalkers: number of MCMC walkers
-               ndim: number of dimensions (parameters)
-    """
-    plist = pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT)
-    nwalkers = len(plist) * walkfactor
-    for element in parameter_overrides.keys():
-        plist.remove(element)
-    pos = np.abs(0.1 * np.random.randn(nwalkers, len(plist)))
-    for entry in range(len(plist)):
-        newpos_param = PARAMETER_INITIALIZATION[plist[entry]]
-        pos[:, entry] = np.random.normal(newpos_param[0], newpos_param[1], len(pos[:, entry]))
-        if newpos_param[2]:
-            pos[:, entry] = np.abs(pos[:, entry])
-        while any(ele < newpos_param[3][0] for ele in pos[:, entry]) or any(
-            ele > newpos_param[3][1] for ele in pos[:, entry]
-        ):
-            pos[:, entry] = np.random.normal(newpos_param[0], newpos_param[1], len(pos[:, entry]))
-            if newpos_param[2]:
-                pos[:, entry] = np.abs(pos[:, entry])
-    return pos, nwalkers, len(plist)
-    # END input_cleaner
-
-
-def pconv(INP_PARAMS, paramshapesdict, splitdict):
-    """
-    Convert input parameters to expanded parameter list accounting for distribution shapes and splits.
-
-    Takes high-level parameter names and expands them into full list of distribution parameters,
-    accounting for:
-    1. Distribution shape (Gaussian needs mu+std, Exponential needs tau, etc.)
-    2. Parameter splits (e.g., different values for low/high mass, low/high redshift)
-
-    Example:
-        INP_PARAMS = ['RV']
-        paramshapesdict = {'RV': 'Gaussian'}  # needs mu, std
-        splitdict = {'RV': {'HOST_LOGMASS': 10}}  # split at mass=10
-
-        Returns: ['RV_HOST_LOGMASS_low_mu', 'RV_HOST_LOGMASS_low_std',
-                  'RV_HOST_LOGMASS_high_mu', 'RV_HOST_LOGMASS_high_std']
-
-    Args:
-        INP_PARAMS: List of high-level parameter names (e.g., ['c', 'RV', 'EBV'])
-        paramshapesdict: Maps parameter to distribution shape (e.g., {'c': 'Gaussian'})
-        splitdict: Nested dict defining parameter splits
-                   {param: {split_var: split_value}}
-                   e.g., {'RV': {'HOST_LOGMASS': 10, 'SIM_ZCMB': 0.1}}
-
-    Returns:
-        list: Expanded parameter names (length = ndim for MCMC)
-              Format: 'PARAM_SPLITVAR1_lowhigh_SPLITVAR2_lowhigh_..._DISTRIBUTIONPARAM'
-    """
-    inpfull = []
-    for i in INP_PARAMS:
-        initial_dimension = _CONFIG.DISTRIBUTION_PARAMETERS[paramshapesdict[i]]
-        if i in splitdict.keys():
-            things_to_split_on = splitdict[i]  # {"Mass": 10, "z": 0.1}
-            nsplits = len(things_to_split_on)  # 2
-            params_to_split_on = things_to_split_on.keys()  # ["Mass", "z"]
-            # Create format string like "{}_{}_{}_{}" for nsplits*2 parameters
-            format_string = "_".join(["{}"] * nsplits * 2)
-            lowhigh_array = np.tile(
-                ["low", "high"], [nsplits, 1]
-            )  # [["low", "high"], ["low", "high"]]
-            splitlist = []
-            for lowhigh_combo in itertools.product(*lowhigh_array):
-                to_format = [val for pair in zip(params_to_split_on, lowhigh_combo) for val in pair]
-                final = format_string.format(*to_format)
-                splitlist.append(final)
-            # initial_dimension = [tmp[0]+'_'+tmp[1] for tmp in itertools.product(initial_dimension,splitlist)]
-            initial_dimension = [
-                tmp[1] + "_" + tmp[0] for tmp in itertools.product(splitlist, initial_dimension)
-            ]
-        final_dimension = [i + "_" + s for s in initial_dimension]
-        inpfull.append(final_dimension)
-    inpfull = [item for sublist in inpfull for item in sublist]
-    return inpfull
-    # END split_cleaner
+        return theta[lowbound:highbound]
 
 
 def array_conv(inp, SPLITDICT, SPLITARR):
@@ -262,7 +167,11 @@ def array_conv(inp, SPLITDICT, SPLITARR):
         for s in SPLITDICT[inp].keys():
             arrlist.append(eval(SPLITARR[s]))
     return arrlist
-    # END array_conv
+
+
+# =============================================================================
+# DATA PROCESSING
+# =============================================================================
 
 
 def dffixer(df, RET, ifdata):
@@ -300,7 +209,6 @@ def dffixer(df, RET, ifdata):
     """
     cpops = []
     x1pops = []
-    rmspops = []
 
     dflow = df.loc[df[f"ibin_{_CONFIG.splitparam}"] == 0]
     dfhigh = df.loc[df[f"ibin_{_CONFIG.splitparam}"] == 1]
@@ -310,19 +218,17 @@ def dffixer(df, RET, ifdata):
     lowrespops = dflow.MURES_SUM.values
     highrespops = dfhigh.MURES_SUM.values
 
-    # Color histogram (existing)
+    # Color histogram
     for q in np.unique(df.ibin_c.values):
         cpops.append(np.sum(df.loc[df.ibin_c == q].NEVT))
     cpops = np.array(cpops)
 
     # x1 (stretch) histogram
-    # Check if x1 bins exist in dataframe
     if "ibin_x1" in df.columns:
         for q in np.unique(df.ibin_x1.values):
             x1pops.append(np.sum(df.loc[df.ibin_x1 == q].NEVT))
         x1pops = np.array(x1pops)
     else:
-        # If no x1 bins, return empty array
         x1pops = np.array([])
 
     lowRMS = dflow.STD_ROBUST.values
@@ -331,7 +237,6 @@ def dffixer(df, RET, ifdata):
     if RET == "HIST":
         return cpops, x1pops
     elif RET == "ANALYSIS":
-        # Return dictionary structure for cleaner access
         return {
             "color_hist": cpops,
             "x1_hist": x1pops,
@@ -344,7 +249,144 @@ def dffixer(df, RET, ifdata):
         }
     else:
         return "No output"
-    # END dffixer
+
+
+# =============================================================================
+# SALT2MU CONNECTION MANAGEMENT
+# =============================================================================
+
+
+def generate_genpdf_varnames(inp_params, splitparam):
+    """
+    Generate SUBPROCESS_VARNAMES_GENPDF string for SALT2mu from input parameters.
+
+    Builds the comma-separated list of variable names that should be included
+    in the GENPDF output file for SNANA simulations. Translates internal parameter
+    names to SALT2mu column names using PARAM_TO_SALT2MU mapping.
+
+    Args:
+        inp_params: List of parameter names being fit (e.g., ['c', 'RV', 'EBV', 'x1'])
+        splitparam: Primary split parameter (e.g., 'HOST_LOGMASS')
+
+    Returns:
+        str: Comma-separated SALT2mu variable names
+             (e.g., 'SIM_c,HOST_LOGMASS,SIM_RV,SIM_x1,SIM_ZCMB,SIM_beta')
+
+    Example:
+        >>> generate_genpdf_varnames(['c', 'RV', 'x1'], 'HOST_LOGMASS')
+        'SIM_c,HOST_LOGMASS,SIM_RV,SIM_x1,SIM_ZCMB,SIM_beta'
+
+    Note:
+        Always includes SIM_ZCMB and SIM_beta even if not in inp_params,
+        as these are required for SALT2mu output.
+    """
+    varnames = []
+
+    # Add parameter variables in SALT2mu format
+    for param in inp_params:
+        if param in _CONFIG.PARAM_TO_SALT2MU:
+            salt2mu_name = _CONFIG.PARAM_TO_SALT2MU[param]
+            if salt2mu_name not in varnames:
+                varnames.append(salt2mu_name)
+
+    # Add split parameter if not already included
+    if splitparam not in varnames:
+        varnames.insert(1, splitparam)
+
+    # Always include redshift and beta if not already present
+    if "SIM_ZCMB" not in varnames:
+        varnames.append("SIM_ZCMB")
+    if "SIM_beta" not in varnames:
+        varnames.append("SIM_beta")
+
+    return ",".join(varnames)
+
+
+def init_connection(config, index, real=True, debug=False):
+    """
+    Initialize connection(s) to SALT2mu.exe subprocess(es).
+
+    Creates SALT2mu connection objects for real data and/or simulation.
+    Each connection maintains a persistent subprocess that can be called repeatedly
+    with different PDF functions for reweighting.
+
+    Args:
+        config: Configuration object with paths and parameters
+        index: Integer ID for this connection (used for file naming in parallel/)
+        real: If True, also create connection for real data (default: True)
+        debug: If True, use OPTMASK=1 to create FITRES files (default: False)
+
+    Returns:
+        tuple: (realdata, connection)
+               realdata: SALT2mu object for real data, or None if real=False
+               connection: SALT2mu object for simulation
+
+    Side effects:
+        - Creates temporary files in config.outdir/parallel/ for subprocess I/O
+        - Launches SALT2mu.exe subprocess(es)
+
+    OPTMASK values:
+        1: Creates FITRES file (used in DEBUG/SINGLE modes)
+        2: Creates M0DIF file
+        4: Implements randomseed option (default for production)
+    """
+    OPTMASK = 4
+    directory = "parallel"
+    if debug:
+        OPTMASK = 1
+
+    realdataout = f"{config.outdir}{directory}/{index}_SUBPROCESS_REALDATA_OUT.DAT"
+    Path(realdataout).touch()
+    simdataout = f"{config.outdir}{directory}/{index}_SUBPROCESS_SIM_OUT.DAT"
+    Path(simdataout).touch()
+    mapsout = f"{config.outdir}{directory}/{index}_PYTHONCROSSTALK_OUT.DAT"
+    Path(mapsout).touch()
+    subprocess_log_data = f"{config.outdir}{directory}/{index}_SUBPROCESS_LOG_DATA.STDOUT"
+    Path(subprocess_log_data).touch()
+    subprocess_log_sim = f"{config.outdir}{directory}/{index}_SUBPROCESS_LOG_SIM.STDOUT"
+    Path(subprocess_log_sim).touch()
+
+    # Generate output table specification (color bins x split parameter bins)
+    arg_outtable = f"'c(6,-0.2:0.25)*{config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
+
+    # Generate GENPDF variable names from input parameters
+    GENPDF_NAMES = generate_genpdf_varnames(config.inp_params, config.splitparam)
+
+    realdata = None
+    cmd_exe = "{0} {1} SUBPROCESS_FILES=%s,%s,%s ".format
+
+    if real:
+        cmd = (
+            cmd_exe(JOBNAME_SALT2mu, config.data_input)
+            + f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} debug_flag=930"
+        )
+        if OPTMASK < 4:
+            cmd += f" SUBPROCESS_OPTMASK={OPTMASK}"
+        realdata = SALT2mu(
+            cmd,
+            config.outdir + "NOTHING.DAT",
+            realdataout,
+            subprocess_log_data,
+            realdata=True,
+            debug=debug,
+        )
+    else:
+        cmd = cmd_exe(JOBNAME_SALT2mu, config.sim_input) + (
+            f"SUBPROCESS_VARNAMES_GENPDF={GENPDF_NAMES} "
+            f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} "
+            f"SUBPROCESS_OPTMASK={OPTMASK} "
+            f"SUBPROCESS_SIMREF_FILE={_CONFIG.simref_file} "
+            f"debug_flag=930"
+        )
+
+    connection = SALT2mu(cmd, mapsout, simdataout, subprocess_log_sim, debug=debug)
+
+    return realdata, connection
+
+
+# =============================================================================
+# LIKELIHOOD & PRIOR FUNCTIONS
+# =============================================================================
 
 
 def compute_and_sum_loglikelihoods(inparr, returnall=False, RMS_weight=1):
@@ -360,13 +402,10 @@ def compute_and_sum_loglikelihoods(inparr, returnall=False, RMS_weight=1):
     - Intrinsic scatter (sigint)
 
     Args:
-        realdata: SALT2mu object containing real data fit results (beta, betaerr, sigint, siginterr)
         inparr: Dictionary with [data, sim] pairs for each observable:
                 Keys: 'color_hist', 'x1_hist', 'mures_high', 'mures_low',
                       'rms_high', 'rms_low', 'nevt_high', 'nevt_low'
                 Each value is [real_data, sim_data]
-        simbeta: Beta parameter from simulation fit
-        simsigint: Intrinsic scatter from simulation fit
         returnall: If True, return detailed components (default: False)
         RMS_weight: Weight factor for RMS terms in likelihood (default: 1)
 
@@ -374,14 +413,8 @@ def compute_and_sum_loglikelihoods(inparr, returnall=False, RMS_weight=1):
         If returnall is False:
             float: Total log-likelihood (sum of all components)
         If returnall is True:
-            tuple: (ll_dict, datacount_dict, simcount_dict, poisson_dict)
-                   ll_dict: Individual chi-squared contributions by observable name
-                   datacount_dict: Data values for each observable
-                   simcount_dict: Simulation values for each observable
-                   poisson_dict: Poisson errors for each observable
+            tuple: (total_ll, ll_dict, datacount_dict, simcount_dict, poisson_dict)
     """
-    # Always create detail dicts (minimal memory overhead)
-    # Only return them if returnall=True at the end
     ll_dict = defaultdict(float)
     datacount_dict = defaultdict(float)
     simcount_dict = defaultdict(float)
@@ -390,7 +423,9 @@ def compute_and_sum_loglikelihoods(inparr, returnall=False, RMS_weight=1):
     # ========== Parameter likelihood terms ==========
     # Beta (color-luminosity relation)
     logger.debug(
-        f"real beta, sim beta, real beta error: {_WORKER_REALDATA.salt2mu_results['beta']}, {_WORKER_SALT2MU_CONNECTION.salt2mu_results['beta']}, {_WORKER_REALDATA.salt2mu_results['betaerr']}"
+        f"real beta, sim beta, real beta error: {_WORKER_REALDATA.salt2mu_results['beta']}, "
+        f"{_WORKER_SALT2MU_CONNECTION.salt2mu_results['beta']}, "
+        f"{_WORKER_REALDATA.salt2mu_results['betaerr']}"
     )
 
     ll_dict["beta"] = (
@@ -419,7 +454,6 @@ def compute_and_sum_loglikelihoods(inparr, returnall=False, RMS_weight=1):
     )
 
     # ========== Observable distributions ==========
-    # Get event counts for error calculations
     nevt_high = inparr["nevt_high"][0]
     nevt_low = inparr["nevt_low"][0]
 
@@ -483,8 +517,7 @@ def compute_and_sum_loglikelihoods(inparr, returnall=False, RMS_weight=1):
     simcount_dict["rms_low"] = sim_rms_low
     poisson_dict["rms_low"] = poisson_rms_low
 
-    # Calculate total log-likelihood with error checking
-    # Check for NaN or inf values in any component
+    # Check for invalid values
     invalid_components = []
     for key, value in ll_dict.items():
         if not np.isfinite(value) or (
@@ -495,7 +528,6 @@ def compute_and_sum_loglikelihoods(inparr, returnall=False, RMS_weight=1):
     if invalid_components:
         logger.warning(f"Invalid (NaN/inf) likelihood components: {invalid_components}")
         logger.warning(f"ll_dict values: {ll_dict}")
-        # Return -inf for MCMC rejection, but still provide detail dicts if requested
         if returnall:
             return ll_dict, datacount_dict, simcount_dict, poisson_dict
         else:
@@ -505,235 +537,6 @@ def compute_and_sum_loglikelihoods(inparr, returnall=False, RMS_weight=1):
         return sum(ll_dict.values()), ll_dict, datacount_dict, simcount_dict, poisson_dict
 
     return sum(ll_dict.values())
-    # END compute_and_sum_loglikelihoods
-
-
-def subprocess_to_snana(OUTDIR, snana_mapping):
-    """
-    Convert GENPDF file from SUBPROCESS format to SNANA-compatible format.
-
-    Reads GENPDF.DAT file, removes the first line (header), and replaces variable
-    names from subprocess format (e.g., 'SIM_c', 'SIM_RV') to SNANA format
-    (e.g., 'SALT2c', 'RV') so the file can be used directly in SNANA simulations.
-
-    Args:
-        OUTDIR: Output directory containing GENPDF.DAT (should end with '/')
-        snana_mapping: Dictionary mapping subprocess names to SNANA names.
-                       Uses SUBPROCESS_TO_SNANA constant:
-                       {'SIM_c': 'SALT2c', 'SIM_RV': 'RV', 'HOST_LOGMASS': 'LOGMASS', ...}
-
-    Side effects:
-        - Removes and recreates GENPDF.DAT file with:
-          - First line removed
-          - All variable names converted to SNANA format
-
-    Returns:
-        str: 'Done' upon completion
-    """
-    filein = OUTDIR + "GENPDF.DAT"
-    f = open(filein)
-    lines = f.readlines()
-    f.close()
-    del lines[0]
-    os.remove(filein)
-    f = open(filein, "w+")
-    for line in lines:
-        f.write(line)
-    f.close()
-    f = open(filein)
-    filedata = f.read()
-    f.close()
-    for i in snana_mapping.keys():
-        if i in filedata:
-            filedata = filedata.replace(i, snana_mapping[i])
-    os.remove(filein)
-    f = open(filein, "w")
-    f.write(filedata)
-    f.close()
-    return "Done"
-    # END subprocess_to_snana
-
-
-# =======================================================
-################### SALT2mu_CONNECTIONS #######################
-# =======================================================
-
-
-def generate_genpdf_varnames(inp_params, splitparam):
-    """
-    Generate SUBPROCESS_VARNAMES_GENPDF string for SALT2mu from input parameters.
-
-    Builds the comma-separated list of variable names that should be included
-    in the GENPDF output file for SNANA simulations. Translates internal parameter
-    names to SALT2mu column names using PARAM_TO_SALT2MU mapping.
-
-    Args:
-        inp_params: List of parameter names being fit (e.g., ['c', 'RV', 'EBV', 'x1'])
-        splitparam: Primary split parameter (e.g., 'HOST_LOGMASS')
-
-    Returns:
-        str: Comma-separated SALT2mu variable names
-             (e.g., 'SIM_c,HOST_LOGMASS,SIM_RV,SIM_x1,SIM_ZCMB,SIM_beta')
-
-    Example:
-        >>> generate_genpdf_varnames(['c', 'RV', 'x1'], 'HOST_LOGMASS')
-        'SIM_c,HOST_LOGMASS,SIM_RV,SIM_x1,SIM_ZCMB,SIM_beta'
-
-    Note:
-        Always includes SIM_ZCMB and SIM_beta even if not in inp_params,
-        as these are required for SALT2mu output.
-    """
-    varnames = []
-
-    # Add parameter variables in SALT2mu format
-    for param in inp_params:
-        if param in _CONFIG.PARAM_TO_SALT2MU:
-            salt2mu_name = _CONFIG.PARAM_TO_SALT2MU[param]
-            if salt2mu_name not in varnames:  # Avoid duplicates
-                varnames.append(salt2mu_name)
-
-    # Add split parameter if not already included
-    if splitparam not in varnames:
-        varnames.insert(1, splitparam)  # Insert after first parameter
-
-    # Always include redshift and beta if not already present
-    if "SIM_ZCMB" not in varnames:
-        varnames.append("SIM_ZCMB")
-    if "SIM_beta" not in varnames:
-        varnames.append("SIM_beta")
-
-    return ",".join(varnames)
-
-
-def init_connection(config, index, real=True, debug=False):
-    """
-    Initialize connection(s) to SALT2mu.exe subprocess(es).
-
-    Creates SALT2mu connection objects for real data and/or simulation.
-    Each connection maintains a persistent subprocess that can be called repeatedly
-    with different PDF functions for reweighting.
-
-    Args:
-        index: Integer ID for this connection (used for file naming in parallel/)
-        real: If True, also create connection for real data (default: True)
-        debug: If True, use OPTMASK=1 to create FITRES files (default: False)
-
-    Returns:
-        tuple: (realdata, connection)
-               realdata: SALT2mu object for real data, or None if real=False
-               connection: SALT2mu object for simulation
-
-    Side effects:
-        - Creates temporary files in config.outdir/parallel/ for subprocess I/O:
-          - {index}_SUBPROCESS_REALDATA_OUT.DAT
-          - {index}_SUBROCESS_SIM_OUT.DAT
-          - {index}_PYTHONCROSSTALK_OUT.DAT
-          - {index}_SUBPROCESS_LOG_DATA.STDOUT
-          - {index}_SUBPROCESS_LOG_SIM.STDOUT
-        - Launches SALT2mu.exe subprocess(es)
-
-    OPTMASK values:
-        1: Creates FITRES file (used in DEBUG/SINGLE modes)
-        2: Creates M0DIF file
-        4: Implements randomseed option (default for production)
-
-    Note:
-        Uses config.data_input, config.simref_file, config.inp_params,
-        config.splitparam, config.debug to configure SALT2mu command.
-    """
-
-    OPTMASK = 4
-    directory = "parallel"
-    if debug:
-        OPTMASK = 1
-
-    realdataout = f"{config.outdir}{directory}/{index}_SUBPROCESS_REALDATA_OUT.DAT"
-    Path(realdataout).touch()
-    simdataout = f"{config.outdir}{directory}/{index}_SUBPROCESS_SIM_OUT.DAT"
-    Path(simdataout).touch()
-    mapsout = f"{config.outdir}{directory}/{index}_PYTHONCROSSTALK_OUT.DAT"
-    Path(mapsout).touch()
-    subprocess_log_data = f"{config.outdir}{directory}/{index}_SUBPROCESS_LOG_DATA.STDOUT"
-    Path(subprocess_log_data).touch()
-    subprocess_log_sim = f"{config.outdir}{directory}/{index}_SUBPROCESS_LOG_SIM.STDOUT"
-    Path(subprocess_log_sim).touch()
-
-    # Generate output table specification (color bins x split parameter bins)
-    arg_outtable = f"'c(6,-0.2:0.25)*{config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
-
-    # Generate GENPDF variable names from input parameters
-    GENPDF_NAMES = generate_genpdf_varnames(config.inp_params, config.splitparam)
-
-    realdata = None
-    cmd_exe = "{0} {1} SUBPROCESS_FILES=%s,%s,%s ".format
-
-    if real:
-        cmd = (
-            cmd_exe(JOBNAME_SALT2mu, config.data_input)
-            + f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} debug_flag=930"
-        )
-        if OPTMASK < 4:
-            cmd += f" SUBPROCESS_OPTMASK={OPTMASK}"
-        realdata = SALT2mu(
-            cmd,
-            config.outdir + "NOTHING.DAT",
-            realdataout,
-            subprocess_log_data,
-            realdata=True,
-            debug=debug,
-        )
-    else:
-        cmd = cmd_exe(JOBNAME_SALT2mu, config.sim_input) + (
-            f"SUBPROCESS_VARNAMES_GENPDF={GENPDF_NAMES} "
-            f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} "
-            f"SUBPROCESS_OPTMASK={OPTMASK} "
-            f"SUBPROCESS_SIMREF_FILE={_CONFIG.simref_file} "
-            f"debug_flag=930"
-        )
-
-    connection = SALT2mu(cmd, mapsout, simdataout, subprocess_log_sim, debug=debug)
-
-    return realdata, connection
-    # END init_connection
-
-
-def normhisttodata(datacount, simcount):
-    """
-    Normalize simulation histogram to match total counts in data.
-
-    Scales simulation counts to have same total as data, computes Poisson errors,
-    and masks bins where both data and sim are zero. This ensures fair comparison
-    between data and simulation histograms regardless of total event counts.
-
-    Args:
-        datacount: Array of data histogram counts per bin (will be converted to numpy array)
-        simcount: Array of simulation histogram counts per bin (will be converted to numpy array)
-
-    Returns:
-        tuple: (datacount_masked, simcount_normalized, poisson_errors, mask)
-            datacount_masked: Data counts with zero bins removed
-            simcount_normalized: Simulation counts scaled by (datatot/simtot), zeros removed
-            poisson_errors: sqrt(datacount) per bin, minimum value 1 to avoid division by zero
-            mask: Boolean array indicating which bins are non-zero (True = kept)
-    """
-    datacount = np.array(datacount)
-    simcount = np.array(simcount)
-    datatot = np.sum(datacount)
-    simtot = np.sum(simcount)
-    simcount = simcount * datatot / simtot
-
-    ww = (datacount != 0) | (simcount != 0)
-
-    poisson = np.sqrt(datacount)
-    poisson[datacount == 0] = 1
-    poisson[~np.isfinite(poisson)] = 1
-    return datacount[ww], simcount[ww], poisson[ww], ww
-    # END normhisttodata
-
-
-# =======================================================
-################### SCIENCE FUNCTIONS ##################
-# =======================================================
 
 
 def log_likelihood(theta, returnall: bool = False, debug: bool = False):
@@ -748,96 +551,45 @@ def log_likelihood(theta, returnall: bool = False, debug: bool = False):
 
     Args:
         theta: Array of parameter values (length = ndim)
-        connection: SALT2mu connection object. If False, retrieves from global
-                   connections list based on current process identity.
         returnall: If True, return detailed likelihood components (default: False)
-        genpdf_only: If True, write GENPDF file and return without running SALT2mu.
-                    Used for generating input files for SNANA simulations.
+        debug: Debug flag (default: False)
 
     Returns:
         float: Log-likelihood value
         If returnall=True: tuple of (ll_dict, datacount_dict, simcount_dict, poisson_dict)
-        Returns -inf if:
-            - MAXPROB > 1.001 (PDF hitting boundary of bounding function)
-            - Beta is NaN (SALT2mu fit failed)
-            - Subprocess error or BrokenPipeError occurs
-        Returns None if genpdf_only=True (after writing GENPDF file)
-
-    Side effects:
-        - Writes PDF functions to connection's crosstalk file
-        - Calls SALT2mu.exe subprocess via connection_next()
-        - May regenerate connection if BrokenPipeError occurs (production mode)
-        - Prints diagnostic information during execution
-
-    Module-level variables used:
-        config: _CONFIG object with inp_params, splitdict, paramshapesdict, splitarr, debug
-        connections: List of SALT2mu connection objects (one per walker)
-        realdata: SALT2mu object containing real data results
-        DISTRIBUTION_PARAMETERS, PARAM_TO_SALT2MU: Parameter mapping dictionaries
+        Returns -inf if MAXPROB > 1.001 (PDF hitting boundary)
     """
     logger.debug(f"Current PID is {os.getpid()}")
-
-    # Generate PDF for given theta parameters
     logger.debug("writing PDF")
 
     theta_index_dic = thetaconverter(theta)
     logger.debug(f"theta = {theta}, theta_dic={theta_index_dic}")
+
     # Run SALT2mu with these PDFs
     _WORKER_SALT2MU_CONNECTION.next_iter(theta, theta_index_dic, _CONFIG)
 
     if _WORKER_SALT2MU_CONNECTION.salt2mu_results["maxprob"] > 1.001:
         logger.debug(
-            f"{_WORKER_SALT2MU_CONNECTION.salt2mu_results['maxprob']} MAXPROB parameter greater than 1! Coming up against the bounding function! Returning -np.inf to account, caught right after connection"
+            f"{_WORKER_SALT2MU_CONNECTION.salt2mu_results['maxprob']} MAXPROB > 1! "
+            "Returning -np.inf"
         )
         return -np.inf
 
-    # ANALYSIS returns c, highres, lowres, rms
     logger.debug("Right before calculation")
-    bindf = _WORKER_SALT2MU_CONNECTION.salt2mu_results[
-        "bindf"
-    ].dropna()  # THIS IS THE PANDAS DATAFRAME OF THE OUTPUT FROM SALT2mu
+    bindf = _WORKER_SALT2MU_CONNECTION.salt2mu_results["bindf"].dropna()
     sim_vals = dffixer(bindf, "ANALYSIS", False)
 
-    realbindf = _WORKER_REALDATA.salt2mu_results[
-        "bindf"
-    ].dropna()  # same for the real data (was a global variable)
+    realbindf = _WORKER_REALDATA.salt2mu_results["bindf"].dropna()
     real_vals = dffixer(realbindf, "ANALYSIS", True)
 
     # Build dictionary pairing data and simulation values
     inparr = {key: [real_vals[key], sim_vals[key]] for key in real_vals.keys()}
 
-    # except Exception as e:
-    #     print(e)
-    #     print("WARNING! something went wrong in reading in stuff for the LL calc")
-    #     return -np.inf
-    # except BrokenPipeError:
-    #     if DEBUG:
-    #         print("WARNING! we landed in a Broken Pipe error")
-    #         quit()
-    #     else:
-    #         print("WARNING! Slurm Broken Pipe Error!")  # REGENERATE THE SALT2mu_CONNECTION
-    #         print("before regenerating")
-    #         newcon = (
-    #             current_process()._identity[0] - 1
-    #         )  # % see above at original connection generator, this has been changed
-    #         tc = init_connection(newcon, real=False)[1]
-    #         connections[newcon] = tc
-    #         return log_likelihood(theta, connection=tc)
-
     logger.debug("Right before calling LL Creator")
-
     out_result = compute_and_sum_loglikelihoods(inparr, returnall=returnall)
-    # print(
-    #     "for ",
-    #     pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT),
-    #     " parameters = ",
-    #     theta,
-    #     "we found an LL of",
-    #     out_result, flush=True
-    # )
-    _WORKER_SALT2MU_CONNECTION.iter += 1  # tick up iteration by one
+
+    _WORKER_SALT2MU_CONNECTION.iter += 1
     return out_result
-    # END log_likelihood
 
 
 def log_prior(theta):
@@ -851,82 +603,62 @@ def log_prior(theta):
 
     Args:
         theta: Array of parameter values (length = ndim)
-        debug: Unused parameter kept for backwards compatibility. Debug output
-               is controlled by config.debug instead.
 
     Returns:
         float: 0.0 if all parameters within bounds, -np.inf otherwise
-
-    Module-level variables used:
-        config: _CONFIG object with inp_params, paramshapesdict, splitdict,
-               parameter_initialization, and debug flag
     """
     thetadict = thetaconverter(theta)
-    plist = pconv(_CONFIG.inp_params, _CONFIG.paramshapesdict, _CONFIG.splitdict)
+    plist = pconv(
+        _CONFIG.inp_params,
+        _CONFIG.paramshapesdict,
+        _CONFIG.splitdict,
+        _CONFIG.DISTRIBUTION_PARAMETERS,
+    )
     logger.debug(f"plist: {plist}")
+
     tlist = False  # if all parameters are good, this remains false
     for key in thetadict.keys():
         logger.debug(f"key: {key}")
-        temp_ps = thetawriter(
-            theta, key
-        )  # I hate this but it works. Creates expanded list for this parameter
+        temp_ps = thetawriter(theta, key)
         logger.debug(f"temp_ps: {temp_ps}")
         plist_n = thetawriter(theta, key, names=plist)
-        for t in range(len(temp_ps)):  # then goes through
+        for t in range(len(temp_ps)):
             logger.debug(f"plist name: {plist_n[t]}")
             lowb = _CONFIG.parameter_initialization[plist_n[t]][3][0]
             highb = _CONFIG.parameter_initialization[plist_n[t]][3][1]
             logger.debug(f"{lowb} < {temp_ps[t]} < {highb}")
-            if not lowb < temp_ps[t] < highb:  # and compares to valid boundaries.
+            if not lowb < temp_ps[t] < highb:
                 tlist = True
+
     if tlist:
         return -np.inf
     else:
         return 0
-    # END log_prior
 
 
-def init_dust2dust(config, debug=False):
+def log_probability(theta):
     """
-    Initialize DUST2DUST by running SALT2mu on real data.
+    Calculate log-probability (posterior) for MCMC sampling.
 
-    Runs SALT2mu on real data to get baseline values for beta, betaerr,
-    sigint, and siginterr that will be compared against in likelihood calculations.
-    This establishes the "truth" values from observed data.
+    Combines log-prior and log-likelihood following Bayes' theorem.
+    Must be called after _init_worker has set up the worker state.
+
+    Args:
+        theta: Array of parameter values (length = ndim)
 
     Returns:
-        SALT2mu: Connection object containing real data fit results with attributes:
-                 - beta: Color-luminosity parameter
-                 - betaerr: Uncertainty on beta
-                 - sigint: Intrinsic scatter
-                 - siginterr: Uncertainty on sigint
-                 - bindf: Pandas DataFrame with binned statistics
-
-    Side effects:
-        - Creates SALT2mu connection with ID=299 (DEBUG/SINGLE/DOPLOT modes)
-          or ID=0 (production mode)
-        - Launches SALT2mu.exe subprocess for real data
-
-    Note:
-        Uses module-level DEBUG, SINGLE, DOPLOT flags to determine connection ID.
+        float: Log-posterior probability (log_prior + log_likelihood)
     """
-
-    index = 0
-    if debug:
-        index = 299
-
-    realdata, _ = init_connection(config, index, real=True, debug=debug)
-
-    return realdata
-    # END init_dust2dust
+    lp = log_prior(theta)
+    if not np.isfinite(lp):
+        logger.debug("WARNING! We returned -inf from small parameters!")
+        return -np.inf
+    return lp + log_likelihood(theta)
 
 
-# Module-level variables for multiprocessing workers
-_WORKER_REALDATA = None
-_WORKER_SALT2MU_CONNECTION = None
-_WORKER_DEBUGFLAG = False
-_WORKER_INDEX = None
-_CONFIG = None
+# =============================================================================
+# INITIALIZATION & WORKER SETUP
+# =============================================================================
 
 
 def _init_worker(config, realdata, debug):
@@ -934,7 +666,13 @@ def _init_worker(config, realdata, debug):
     Initializer function for Pool workers.
 
     Sets up worker-local state by storing the appropriate connection
-    for this worker based on its process identity.
+    for this worker based on its process identity. Called once per
+    worker when the Pool is created.
+
+    Args:
+        config: Configuration object
+        realdata: SALT2mu connection for real data (shared across workers)
+        debug: Debug flag
     """
     global _WORKER_REALDATA, _WORKER_SALT2MU_CONNECTION, _WORKER_DEBUGFLAG, _CONFIG, _WORKER_INDEX
     _WORKER_REALDATA = realdata
@@ -948,18 +686,37 @@ def _init_worker(config, realdata, debug):
     _, _WORKER_SALT2MU_CONNECTION = init_connection(_CONFIG, _WORKER_INDEX, real=False, debug=debug)
 
 
-def log_probability(theta):
+def init_dust2dust(config, debug=False):
     """
-    Calculate log-probability (posterior) for MCMC sampling.
+    Initialize DUST2DUST by running SALT2mu on real data.
 
-    Combines log-prior and log-likelihood following Bayes' theorem.
-    Must be called after _init_worker has set up the worker state.
+    Runs SALT2mu on real data to get baseline values for beta, betaerr,
+    sigint, and siginterr that will be compared against in likelihood calculations.
+    This establishes the "truth" values from observed data.
+
+    Args:
+        config: Configuration object
+        debug: If True, use debug connection index (default: False)
+
+    Returns:
+        SALT2mu: Connection object containing real data fit results with attributes:
+                 - beta: Color-luminosity parameter
+                 - betaerr: Uncertainty on beta
+                 - sigint: Intrinsic scatter
+                 - siginterr: Uncertainty on sigint
+                 - bindf: Pandas DataFrame with binned statistics
     """
-    lp = log_prior(theta)
-    if not np.isfinite(lp):
-        logger.debug("WARNING! We returned -inf from small parameters!")
-        return -np.inf
-    return lp + log_likelihood(theta)
+    index = 0
+    if debug:
+        index = 299
+
+    realdata, _ = init_connection(config, index, real=True, debug=debug)
+    return realdata
+
+
+# =============================================================================
+# MAIN MCMC FUNCTION
+# =============================================================================
 
 
 def MCMC(
@@ -980,7 +737,7 @@ def MCMC(
     long relative to autocorrelation time and tau estimates have stabilized.
 
     Args:
-        config: _CONFIG object with configuration parameters
+        config: Configuration object with parameters and paths
         pos: Initial walker positions array of shape (nwalkers, ndim)
         nwalkers: Number of MCMC walkers
         ndim: Number of parameters (dimensions)
@@ -999,7 +756,7 @@ def MCMC(
     Side effects:
         - Saves chains to HDF5 file: {outdir}/chains/{data_input}-chains.h5
         - Saves autocorrelation history to: {outdir}/chains/{data_input}-autocorr.npz
-        - Prints convergence diagnostics every check_interval steps
+        - Saves thinned samples to: {outdir}/chains/{data_input}-samples_thinned.npz
     """
     # Set up HDF5 backend for robust chain storage
     chain_filename = (
@@ -1032,15 +789,12 @@ def MCMC(
                 continue
 
             # Compute autocorrelation time
-            # tol=0 means we get an estimate even if chain is short
             try:
                 tau = sampler.get_autocorr_time(tol=0)
                 autocorr_history[autocorr_index] = np.mean(tau)
                 autocorr_index += 1
 
                 # Check convergence criteria
-                # 1. Chain must be > 100 * tau
-                # 2. Tau estimate must have changed by < 1%
                 converged = np.all(tau * 100 < sampler.iteration)
                 converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
 
@@ -1066,7 +820,6 @@ def MCMC(
                 old_tau = tau
 
             except emcee.autocorr.AutocorrError:
-                # Chain too short for reliable tau estimate
                 logger.debug(f"\nIteration {sampler.iteration}: Chain too short for tau estimate")
 
         # Save autocorrelation history
@@ -1112,4 +865,3 @@ def MCMC(
             logger.warning("Consider running longer or checking for convergence issues.")
 
     return sampler
-    # END MCMC

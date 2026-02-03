@@ -39,6 +39,12 @@ from dust2dusty.dust2dust import (
 )
 from dust2dusty.logging import get_logger, setup_logging
 from dust2dusty.salt2mu import SALT2mu
+from dust2dusty.utils import (
+    input_cleaner,
+    normhisttodata,
+    pconv,
+    subprocess_to_snana,
+)
 
 __all__ = [
     # Version info
@@ -58,4 +64,9 @@ __all__ = [
     "log_probability",
     # SALT2mu interface
     "SALT2mu",
+    # Utility functions
+    "input_cleaner",
+    "normhisttodata",
+    "pconv",
+    "subprocess_to_snana",
 ]
