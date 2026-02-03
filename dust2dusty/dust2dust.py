@@ -55,7 +55,6 @@ from multiprocessing import Pool, cpu_count, current_process
 import emcee
 import numpy as np
 
-from dust2dusty.cli import _CONFIG
 from dust2dusty.logging import get_logger
 from dust2dusty.salt2mu import SALT2mu
 
