@@ -42,10 +42,14 @@ chains/
 *.h5
 *.npz
 
+
 # SALT2mu subprocess files
 parallel/*.DAT
 parallel/*.STDOUT
 parallel/*.log
+*.DAT
+*.STDOUT
+
 
 # Output figures (keep directory structure)
 figures/*.pdf
