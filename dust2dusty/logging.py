@@ -80,7 +80,7 @@ def setup_logging(
 
     # File handler (optional)
     if log_file:
-        file_handler = logging.FileHandler(log_file, mode="a")
+        file_handler = logging.FileHandler(log_file, mode="w")
         file_handler.setLevel(logging.DEBUG)  # Always log everything to file
         file_formatter = logging.Formatter(
             fmt="%(asctime)s [%(levelname)8s |%(filename)21s:%(lineno)3d]   %(message)s",
@@ -140,7 +140,7 @@ def setup_walker_logger(
     logger.setLevel(level)
 
     # File handler for walker-specific log (always write to file)
-    file_handler = logging.FileHandler(f"{log_dir}/walker_{walker_id}.log", mode="a+")
+    file_handler = logging.FileHandler(f"{log_dir}/walker_{walker_id}.log", mode="w")
     file_handler.setLevel(level)
     formatter = logging.Formatter(
         fmt="%(asctime)s %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"

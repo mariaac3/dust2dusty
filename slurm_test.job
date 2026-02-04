@@ -2,7 +2,7 @@
 #SBATCH --job-name=dust2dust-mpi
 #SBATCH --time=01:00:00
 #SBATCH --ntasks=25
-#SBATCH --nodes=3
+#SBATCH --nodes=2
 #SBATCH --partition=broadwl-lc
 #SBATCH --account=pi-rkessler
 

@@ -322,11 +322,13 @@ def get_worker_index():
         import multiprocessing as mp
 
         process = mp.current_process()
+        print(f"XXXXXXXX PROCESS = {process._identity[0]} XXXXXXXXXXXX", flush=True)
         if hasattr(process, "_identity") and process._identity:
             return process._identity[0] - 1  # 0-indexed
         else:
             return 0  # Main process or SerialPool
     except:
+        logger.debug("WORKER INDEX ERROR")
         return 0  # Fallback for serial execution
 
 
@@ -356,8 +358,8 @@ def init_salt2mu_worker_connection() -> SALT2mu:
     """
     optmask = 4
     directory = "worker_files"
-    if _WORKER_DEBUGFLAG:
-        optmask = 1
+    # if _WORKER_DEBUGFLAG:
+    #     optmask = 1
 
     outdir = Path(_CONFIG.outdir)
     sim_data_out = outdir / f"{directory}/{_WORKER_INDEX}_SUBPROCESS_SIM_OUT.DAT"

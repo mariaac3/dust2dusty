@@ -87,14 +87,19 @@ def MCMC(
     ) as pool:
         if isinstance(pool, schwimmbad.SerialPool):
             _init_worker(config, realdata_salt2mu_results, debug)
+            n_proc = 1
         elif isinstance(pool, schwimmbad.MPIPool):
             if not pool.is_master():
                 pool.wait()
                 sys.exit(0)
+            n_proc = pool.comm.Get_size()
+        elif isinstance(pool, schwimmbad.MultiPool):
+            n_proc = pool._processes
 
         logger.info(
-            f"Initializing MCMC with {config.N_PROCESS} CPUs, {nwalkers} walkers, {ndim} dimensions, pool type is {pool.__class__.__name__}"
+            f"Initializing MCMC with {n_proc} CPUs, {nwalkers} walkers, {ndim} dimensions, pool type is {pool.__class__.__name__}"
         )
+
         sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, backend=backend)
 
         logger.debug("=" * 60)
