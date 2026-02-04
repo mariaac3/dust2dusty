@@ -25,15 +25,15 @@ logger: logging.Logger = get_logger()
 
 
 def MCMC(
-    config: Config,
-    pos: NDArray[np.float64],
+    config: Config | None,
+    pos: NDArray[np.float64] | None,
     nwalkers: int,
     ndim: int,
-    realdata_salt2mu_results: dict[str, Any],
+    realdata_salt2mu_results: dict[str, Any] | None,
     debug: bool = False,
     max_iterations: int = 100000,
     convergence_check_interval: int = 100,
-) -> emcee.EnsembleSampler:
+) -> emcee.EnsembleSampler | None:
     """
     Run MCMC sampling using emcee ensemble sampler with HDF5 backend.
 
@@ -42,18 +42,22 @@ def MCMC(
     chains are sufficiently long relative to autocorrelation time and tau
     estimates have stabilized.
 
+    For MPI runs, worker processes (rank > 0) call this function with None
+    values and wait in the pool for tasks from the master.
+
     Args:
-        config: Configuration object with parameters and paths.
-        pos: Initial walker positions array of shape (nwalkers, ndim).
-        nwalkers: Number of MCMC walkers.
-        ndim: Number of parameters (dimensions).
-        realdata_salt2mu_results: Dictionary containing real data fit results.
+        config: Configuration object with parameters and paths (None for MPI workers).
+        pos: Initial walker positions array of shape (nwalkers, ndim) (None for workers).
+        nwalkers: Number of MCMC walkers (0 for workers).
+        ndim: Number of parameters (dimensions) (0 for workers).
+        realdata_salt2mu_results: Dictionary containing real data fit results (None for workers).
         debug: If True, run in debug mode.
         max_iterations: Maximum number of iterations before stopping.
         convergence_check_interval: Check convergence every N steps.
 
     Returns:
-        The emcee sampler object with chain results.
+        The emcee sampler object with chain results (master only).
+        None for worker processes.
 
     Convergence Criteria (from emcee documentation):
         1. Chain length > 100 * tau (autocorrelation time)
@@ -64,6 +68,16 @@ def MCMC(
         - Saves autocorrelation history to: {outdir}/chains/{data_input}-autocorr.npz
         - Saves thinned samples to: {outdir}/chains/{data_input}-samples_thinned.npz
     """
+    # Check if this is a worker process (called with None config)
+    is_worker = config is None
+
+    if is_worker:
+        # Worker process: just enter the pool and wait for tasks
+        with schwimmbad.MPIPool() as pool:
+            pool.wait()
+        sys.exit(0)
+
+    # Master process continues with full MCMC setup
     # Set up HDF5 backend for robust chain storage
     chain_filename = (
         config.outdir + "chains/" + config.data_input.split(".")[0].split("/")[-1] + "-chains.h5"
@@ -87,10 +101,9 @@ def MCMC(
             _init_worker(config, realdata_salt2mu_results, debug)
             n_proc = 1
         elif isinstance(pool, schwimmbad.MPIPool):
-            if not pool.is_master():
-                pool.wait()
-                sys.exit(0)
             n_proc = pool.comm.Get_size()
+        else:
+            n_proc = 1
 
         logger.info(
             f"Initializing MCMC with {n_proc} CPUs, {nwalkers} walkers, {ndim} dimensions, pool type is {pool.__class__.__name__}"

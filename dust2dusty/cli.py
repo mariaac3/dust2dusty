@@ -379,12 +379,32 @@ def get_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _get_mpi_info() -> tuple[int, int]:
+    """
+    Get MPI rank and size.
+
+    Returns:
+        Tuple of (rank, size). Returns (0, 1) if MPI is not available.
+    """
+    try:
+        from mpi4py import MPI
+
+        comm = MPI.COMM_WORLD
+        return comm.Get_rank(), comm.Get_size()
+    except ImportError:
+        return 0, 1
+
+
 def main() -> int:
     """
     Main entry point for the dust2dusty command-line tool.
 
     Parses command-line arguments, sets up logging, loads configuration,
     and runs either a test evaluation or full MCMC sampling.
+
+    For MPI runs, only the master process (rank 0) performs full setup.
+    Worker processes (rank > 0) skip heavy initialization and go directly
+    to the MCMC function where they wait in the pool.
 
     Returns:
         Exit code (0 for success).
@@ -397,49 +417,54 @@ def main() -> int:
     from dust2dusty.mcmc import MCMC
     from dust2dusty.utils import init_salt2mu_realdata, input_cleaner
 
-    # Parse arguments and load configuration
-    args = get_args()
+    # Check MPI status early - workers should not do heavy setup
+    rank, size = _get_mpi_info()
+    is_master = rank == 0
 
-    # Set up logging before loading config
-    debug = args.DEBUG or args.TEST_RUN
-    setup_logging(debug=debug, verbose=args.VERBOSE)
-    logger = get_logger()
-    logger.info(__dust2dust_str__)
+    if is_master:
+        # Master process (rank 0) does full setup
+        args = get_args()
+        debug = args.DEBUG or args.TEST_RUN
+        setup_logging(debug=debug, verbose=args.VERBOSE)
+        logger = get_logger()
+        logger.info(__dust2dust_str__)
 
-    # Load and validate configuration
-    config = load_config(args.CONFIG, args, logger)
+        config = load_config(args.CONFIG, args, logger)
+        realdata_salt2mu_results = init_salt2mu_realdata(config, logger, debug=debug)
 
-    # Initialize real data
-    realdata_salt2mu_results = init_salt2mu_realdata(config, logger, debug=debug)
+        pos, nwalkers, ndim = input_cleaner(
+            config.inp_params,
+            config.paramshapesdict,
+            config.splitdict,
+            config.DISTRIBUTION_PARAMETERS,
+            config.parameter_initialization,
+            config.PARAMETER_OVERRIDES,
+            walkfactor=2,
+        )
 
-    pos, nwalkers, ndim = input_cleaner(
-        config.inp_params,
-        config.paramshapesdict,
-        config.splitdict,
-        config.DISTRIBUTION_PARAMETERS,
-        config.parameter_initialization,
-        config.PARAMETER_OVERRIDES,
-        walkfactor=2,
-    )
+        # Test run mode - single likelihood evaluation (no MPI needed)
+        if config.TEST_RUN:
+            _init_worker(config, realdata_salt2mu_results, debug=debug)
+            logger.info(f"Test run result: {log_probability(config.params)}")
+            sys.exit(0)
 
-    # Test run mode - single likelihood evaluation
-    if config.TEST_RUN:
-        _init_worker(config, realdata_salt2mu_results, debug=debug)
-        logger.info(f"Test run result: {log_probability(config.params)}")
-        sys.exit(0)
+        # Full MCMC run
+        logger.info("=" * 60)
+        logger.info("Starting MCMC sampling...")
+        logger.info(f"  Walkers: {nwalkers}")
+        logger.info(f"  Dimensions: {ndim}")
+        logger.info(f"  Parameters: {', '.join(config.inp_params)}")
+        logger.info("=" * 60 + "\n")
+        logger.debug("DEBUG MODE ON")
 
-    # Full MCMC run
-    logger.info("=" * 60)
-    logger.info("Starting MCMC sampling...")
-    logger.info(f"  Walkers: {nwalkers}")
-    logger.info(f"  Dimensions: {ndim}")
-    logger.info(f"  Parameters: {', '.join(config.inp_params)}")
-    logger.info("=" * 60 + "\n")
-    logger.debug("DEBUG MODE ON")
+        MCMC(config, pos, nwalkers, ndim, realdata_salt2mu_results, debug=debug)
 
-    MCMC(config, pos, nwalkers, ndim, realdata_salt2mu_results, debug=debug)
+        logger.info("DUST2DUST(Y) complete.")
+    else:
+        # Worker processes (rank > 0) go directly to MCMC with None values
+        # They will receive config via the pool initializer
+        MCMC(None, None, 0, 0, None, debug=False)
 
-    logger.info("DUST2DUST(Y) complete.")
     return 0
 
 
