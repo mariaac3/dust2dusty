@@ -304,32 +304,21 @@ def generate_genpdf_varnames(inp_params: list[str], splitparam: str) -> str:
     return ",".join(varnames)
 
 
-def get_worker_index():
+def get_worker_index() -> int:
     """
-    Get worker rank/index adaptively for MPI or multiprocessing.
-    Returns 0 for serial execution.
+    Get worker rank/index for MPI.
+
+    Returns MPI rank when running under MPI, or 0 for serial execution.
+
+    Returns:
+        MPI rank (0 for master, >0 for workers) or 0 if MPI not available.
     """
     try:
-        # Try MPI first
         from mpi4py import MPI
 
         return MPI.COMM_WORLD.Get_rank()
     except ImportError:
-        pass
-
-    try:
-        # Try multiprocessing
-        import multiprocessing as mp
-
-        process = mp.current_process()
-        print(f"XXXXXXXX PROCESS = {process._identity[0]} XXXXXXXXXXXX", flush=True)
-        if hasattr(process, "_identity") and process._identity:
-            return process._identity[0] - 1  # 0-indexed
-        else:
-            return 0  # Main process or SerialPool
-    except:
-        logger.debug("WORKER INDEX ERROR")
-        return 0  # Fallback for serial execution
+        return 0
 
 
 def init_salt2mu_worker_connection() -> SALT2mu:

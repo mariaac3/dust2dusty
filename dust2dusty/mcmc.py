@@ -7,6 +7,7 @@ This module contains the main MCMC sampling function using emcee.
 from __future__ import annotations
 
 import logging
+import sys
 from typing import TYPE_CHECKING, Any
 
 import emcee
@@ -76,12 +77,9 @@ def MCMC(
     autocorr_index = 0
     old_tau: float | NDArray = np.inf
 
-    if config.USE_MPI:
-        logger.info("Use MPI")
-
     with schwimmbad.choose_pool(
         mpi=config.USE_MPI,
-        processes=config.N_PROCESS,
+        processes=1,  # Always 1 - use MPI for parallelization
         initializer=_init_worker,
         initargs=(config, realdata_salt2mu_results, debug),
     ) as pool:
@@ -93,8 +91,6 @@ def MCMC(
                 pool.wait()
                 sys.exit(0)
             n_proc = pool.comm.Get_size()
-        elif isinstance(pool, schwimmbad.MultiPool):
-            n_proc = pool._processes
 
         logger.info(
             f"Initializing MCMC with {n_proc} CPUs, {nwalkers} walkers, {ndim} dimensions, pool type is {pool.__class__.__name__}"

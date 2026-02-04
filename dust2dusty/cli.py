@@ -139,8 +139,6 @@ class Config:
     splitarr: dict[str, str] = field(default_factory=dict)
 
     # Command line arguments
-    N_PROCESS: int | None = None
-
     # - Command-line overrides
     CMD_DATA: str | None = None
     CMD_SIM: str | None = None
@@ -186,7 +184,6 @@ class Config:
             DEBUG=args.DEBUG or args.TEST_RUN,
             NOWEIGHT=args.NOWEIGHT,
             USE_MPI=args.USE_MPI,
-            N_PROCESS=args.N_PROCESS,
             VERBOSE=args.VERBOSE,
         )
 
@@ -371,10 +368,6 @@ def get_args() -> argparse.Namespace:
         "--USE_MPI",
         action="store_true",
         help="Use MPI to distribute process",
-    )
-
-    parser.add_argument(
-        "--N_PROCESS", type=int, default=None, help="Number of processes to run in parallel"
     )
 
     parser.add_argument(
