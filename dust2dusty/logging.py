@@ -30,7 +30,9 @@ LOGGER_NAME: str = "dust2dusty"
 _logging_configured: bool = False
 
 
-def setup_logging(debug: bool = False, log_file: str | None = None) -> logging.Logger:
+def setup_logging(
+    debug: bool = False, log_file: str | None = None, verbose: bool = False
+) -> logging.Logger:
     """
     Configure logging for the DUST2DUSTY package.
 
@@ -41,6 +43,8 @@ def setup_logging(debug: bool = False, log_file: str | None = None) -> logging.L
         debug: If True, set logging level to DEBUG; otherwise INFO.
         log_file: Optional path to log file. If provided, logs will also be
             written to this file.
+        verbose: If True, show INFO level messages on console; otherwise only
+            show WARNING and above on console. File logging is unaffected.
 
     Returns:
         Configured logger instance for DUST2DUSTY.
@@ -59,9 +63,15 @@ def setup_logging(debug: bool = False, log_file: str | None = None) -> logging.L
     level = logging.DEBUG if debug else logging.INFO
     logger.setLevel(level)
 
-    # Console handler
+    # Console handler - level depends on verbose flag
     console_handler = logging.StreamHandler(stream=sys.stdout)
-    console_handler.setLevel(level)
+    if debug:
+        console_level = logging.DEBUG
+    elif verbose:
+        console_level = logging.INFO
+    else:
+        console_level = logging.WARNING
+    console_handler.setLevel(console_level)
     console_formatter = logging.Formatter(
         fmt="[%(levelname)8s |%(filename)21s:%(lineno)3d]   %(message)s"
     )
@@ -108,12 +118,13 @@ def setup_walker_logger(
     Create a logger for a specific MCMC walker subprocess.
 
     Each walker gets its own log file for detailed debugging of subprocess
-    communication with SALT2mu.exe.
+    communication with SALT2mu.exe. Logs are always written to files (never
+    to terminal).
 
     Args:
         walker_id: Integer or string identifier for the walker.
         log_dir: Directory for log files.
-        debug: If True, enable file logging; otherwise use NullHandler.
+        debug: If True, log level is DEBUG; otherwise INFO.
 
     Returns:
         Logger instance for this specific walker.
@@ -125,19 +136,19 @@ def setup_walker_logger(
     if logger.handlers:
         return logger
 
-    logger.setLevel(logging.DEBUG)
-    print("====" * 20 + f"{debug}")
-    if debug:
-        # File handler for walker-specific log
-        file_handler = logging.FileHandler(f"{log_dir}/walker_{walker_id}.log", mode="a+")
-        file_handler.setLevel(logging.DEBUG)
-        formatter = logging.Formatter(
-            fmt="%(asctime)s %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-        )
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    else:
-        # Null handler when not debugging
-        logger.addHandler(logging.NullHandler())
+    level = logging.DEBUG if debug else logging.INFO
+    logger.setLevel(level)
+
+    # File handler for walker-specific log (always write to file)
+    file_handler = logging.FileHandler(f"{log_dir}/walker_{walker_id}.log", mode="a+")
+    file_handler.setLevel(level)
+    formatter = logging.Formatter(
+        fmt="%(asctime)s %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    # Prevent propagation to root logger (avoid terminal output)
+    logger.propagate = False
 
     return logger

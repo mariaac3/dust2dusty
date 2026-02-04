@@ -150,6 +150,7 @@ class Config:
     TEST_RUN: bool = False
     DEBUG: bool = False
     NOWEIGHT: bool = False
+    VERBOSE: bool = False
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any], args: argparse.Namespace) -> Config:
@@ -186,6 +187,7 @@ class Config:
             NOWEIGHT=args.NOWEIGHT,
             USE_MPI=args.USE_MPI,
             N_PROCESS=args.N_PROCESS,
+            VERBOSE=args.VERBOSE,
         )
 
     def __post_init__(self):
@@ -375,7 +377,11 @@ def get_args() -> argparse.Namespace:
         "--N_PROCESS", type=int, default=None, help="Number of processes to run in parallel"
     )
 
-    parser.add_argument("--VERBOSE", action="store_true", help="Trigger more verbose")
+    parser.add_argument(
+        "--VERBOSE",
+        action="store_true",
+        help="Show INFO level logging on terminal (default: only WARNING and above)",
+    )
 
     return parser.parse_args()
 
@@ -403,7 +409,7 @@ def main() -> int:
 
     # Set up logging before loading config
     debug = args.DEBUG or args.TEST_RUN
-    setup_logging(debug=debug)
+    setup_logging(debug=debug, verbose=args.VERBOSE)
     logger = get_logger()
     logger.info(__dust2dust_str__)
 

@@ -95,7 +95,9 @@ class SALT2mu:
         """
         # Get walker ID from mapsout filename for walker-specific logging
         walker_id = mapsout.name.split("_")[0]
-        self.logger: logging.Logger = setup_walker_logger(walker_id, debug=debug)
+        # Derive log directory from mapsout path (outdir/worker_files -> outdir/logs)
+        log_dir = str(mapsout.parent.parent / "logs")
+        self.logger: logging.Logger = setup_walker_logger(walker_id, log_dir=log_dir, debug=debug)
 
         self.iter: int = -1
         self.debug: bool = debug
