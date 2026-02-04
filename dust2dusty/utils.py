@@ -8,6 +8,7 @@ making them easily testable and reusable.
 from __future__ import annotations
 
 import itertools
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -39,7 +40,9 @@ def cmd_exe(executable: str, input_file: str) -> str:
     return f"{executable} {input_file} SUBPROCESS_FILES=%s,%s,%s "
 
 
-def init_salt2mu_realdata(config: Config, debug: bool = False) -> dict[str, Any]:
+def init_salt2mu_realdata(
+    config: Config, logger: logging.Logger, debug: bool = False
+) -> dict[str, Any]:
     """
     Initialize DUST2DUSTY by running SALT2mu on real data.
 
@@ -70,9 +73,11 @@ def init_salt2mu_realdata(config: Config, debug: bool = False) -> dict[str, Any]
     outdir = Path(config.outdir)
 
     subprocess_log_data = outdir / f"{directory}/{index}_SUBPROCESS_LOG_DATA.STDOUT"
+    logger.debug(f"Create file: {subprocess_log_data.absolute()}")
     subprocess_log_data.touch()
 
     realdata_out = outdir / f"{directory}/SUBPROCESS_REAL_DATA_OUT.DAT"
+    logger.debug(f"Create file: {realdata_out.absolute()}")
     realdata_out.touch()
 
     # Generate output table specification (color bins x split parameter bins)
@@ -84,7 +89,7 @@ def init_salt2mu_realdata(config: Config, debug: bool = False) -> dict[str, Any]
 
     real_data = SALT2mu(
         cmd,
-        config.outdir + "NOTHING.DAT",
+        outdir / f"{directory}/NOTHING.DAT",
         realdata_out,
         subprocess_log_data,
         is_realdata=True,
@@ -295,3 +300,13 @@ def normhisttodata(
     poisson[datacount == 0] = 1
     poisson[~np.isfinite(poisson)] = 1
     return datacount[ww], simcount[ww], poisson[ww], ww
+
+
+__dust2dust_str__ = """
+    ██████╗ ██╗   ██╗███████╗████████╗██████╗ ██████╗ ██╗   ██╗███████╗████████╗
+    ██╔══██╗██║   ██║██╔════╝╚══██╔══╝╚════██╗██╔══██╗██║   ██║██╔════╝╚══██╔══╝
+    ██║  ██║██║   ██║███████╗   ██║    █████╔╝██║  ██║██║   ██║███████╗   ██║
+    ██║  ██║██║   ██║╚════██║   ██║   ██╔═══╝ ██║  ██║██║   ██║╚════██║   ██║
+    ██████╔╝╚██████╔╝███████║   ██║   ███████╗██████╔╝╚██████╔╝███████║   ██║
+    ╚═════╝  ╚═════╝ ╚══════╝   ╚═╝   ╚══════╝╚═════╝  ╚═════╝ ╚══════╝   ╚═╝
+    """

@@ -126,7 +126,7 @@ def setup_walker_logger(
         return logger
 
     logger.setLevel(logging.DEBUG)
-
+    print("====" * 20 + f"{debug}")
     if debug:
         # File handler for walker-specific log
         file_handler = logging.FileHandler(f"{log_dir}/walker_{walker_id}.log", mode="a+")

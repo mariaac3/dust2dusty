@@ -7,11 +7,11 @@ This module contains the main MCMC sampling function using emcee.
 from __future__ import annotations
 
 import logging
-from multiprocessing import Pool, cpu_count
 from typing import TYPE_CHECKING, Any
 
 import emcee
 import numpy as np
+import schwimmbad
 from numpy.typing import NDArray
 
 from dust2dusty.dust2dust import _init_worker, log_probability
@@ -76,22 +76,31 @@ def MCMC(
     autocorr_index = 0
     old_tau: float | NDArray = np.inf
 
-    with Pool(
-        nwalkers,
+    if config.USE_MPI:
+        logger.info("Use MPI")
+
+    with schwimmbad.choose_pool(
+        mpi=config.USE_MPI,
+        processes=config.N_PROCESS,
         initializer=_init_worker,
         initargs=(config, realdata_salt2mu_results, debug),
     ) as pool:
+        if isinstance(pool, schwimmbad.SerialPool):
+            _init_worker(config, realdata_salt2mu_results, debug)
+        elif isinstance(pool, schwimmbad.MPIPool):
+            if not pool.is_master():
+                pool.wait()
+                sys.exit(0)
+
+        logger.info(
+            f"Initializing MCMC with {config.N_PROCESS} CPUs, {nwalkers} walkers, {ndim} dimensions, pool type is {pool.__class__.__name__}"
+        )
         sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, backend=backend)
 
-        logger.debug(
-            f"Starting MCMC with {cpu_count()} CPUs, {nwalkers} walkers, {ndim} dimensions"
-        )
-        logger.debug(
-            f"Max iterations: {max_iterations}, "
-            f"convergence check every {convergence_check_interval} steps"
-        )
         logger.debug("=" * 60)
-
+        if debug:
+            sampler.run_mcmc(pos, 3)
+            sys.exit(0)
         # Run with convergence monitoring
         for _ in sampler.sample(pos, iterations=max_iterations, progress=True):
             # Only check convergence every N steps

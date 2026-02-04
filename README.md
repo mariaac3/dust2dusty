@@ -30,7 +30,7 @@ dust2dusty --CONFIG config/my_config.yml
 dust2dusty --CONFIG config/my_config.yml --DEBUG
 
 # Run a single likelihood evaluation (test mode)
-dust2dusty --CONFIG config/my_config.yml --test_run
+dust2dusty --CONFIG config/my_config.yml --TEST_RUN
 ```
 
 ### Python API

@@ -29,9 +29,9 @@ Typical Workflow:
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import time
+from contextlib import nullcontext
 from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -71,9 +71,9 @@ class SALT2mu:
     def __init__(
         self,
         command: str,
-        mapsout: str | Path,
-        salt2mu_out: str | Path,
-        log: str | Path,
+        mapsout: Path,
+        salt2mu_out: Path,
+        log_out: Path,
         is_realdata: bool = False,
         debug: bool = False,
     ) -> None:
@@ -94,36 +94,48 @@ class SALT2mu:
             - If is_realdata=False: Launches SALT2mu.exe subprocess
         """
         # Get walker ID from mapsout filename for walker-specific logging
-        walker_id = os.path.basename(str(mapsout)).split("_")[0]
+        walker_id = mapsout.name.split("_")[0]
         self.logger: logging.Logger = setup_walker_logger(walker_id, debug=debug)
 
         self.iter: int = -1
         self.debug: bool = debug
         self.ready_enditer: str = "Enter expected ITERATION number"
-        self.ready2: str = "ITERATION=%d"
         self.done: str = "Graceful Program Exit. Bye."
         self.initready: str = "Finished SUBPROCESS_INIT"
         self.crosstalkfile = open(mapsout, "w")
         self.SALT2muoutputs = open(salt2mu_out)
 
-        self.command: str = command % (mapsout, salt2mu_out, log)
+        self.command: str = command % (
+            mapsout.absolute(),
+            salt2mu_out.absolute(),
+            log_out.absolute(),
+        )
 
         self.logger.info("Init SALT2mu instance. ")
         self.logger.info("## ================================== ##")
         self.logger.info(f"Command: {self.command}")
         self.logger.info(f"mapsout: {mapsout}")
-        self.logger.info(f"Debug mode={self.debug}")
-
-        if self.debug:
-            self.command = self.command + " write_yaml=1"
+        self.logger.debug("DEBUG MODE ON")
 
         self.logger.info("Command being run: " + self.command)
         self.salt2mu_results: dict[str, Any] = {}
 
         if is_realdata:
+            if self.debug:
+                self.command = self.command + " write_yaml=1"
+
             self.logger.info("Running realdata=True")
-            subprocess.run(self.command, shell=True)
+            self.logger.debug("## ==============RUN SALT2MU DATA================= ##")
+
+            with (
+                nullcontext()
+                if self.debug
+                else open(log_out.parent / f"{walker_id}_PROCESSLOG.log", "w")
+            ) as stdout:
+                subprocess.run(self.command, shell=True, stdout=stdout)
             self.getData()
+            self.logger.debug("## =====================END======================= ##")
+
         else:
             self.process = subprocess.Popen(
                 self.command,
@@ -131,7 +143,7 @@ class SALT2mu:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 text=True,
-                bufsize=1,
+                bufsize=0,
             )
             self.wait_until_text_in_output(self.ready_enditer)
 

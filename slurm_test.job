@@ -1,0 +1,24 @@
+#!/bin/bash
+#SBATCH --job-name=dust2dust-mpi
+#SBATCH --time=01:00:00
+#SBATCH --ntasks=25
+#SBATCH --nodes=3
+#SBATCH --partition=broadwl-lc
+#SBATCH --account=pi-rkessler
+
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+
+module load openmpi
+module load intelmpi/5.1+intel-16.0
+module load cfitsio/3
+module load mkl
+
+source /project2/rkessler/PRODUCTS/miniconda/bin/activate
+
+conda activate
+
+mpirun dust2dusty --CONFIG $DEBASS_USERS/mariaace/DR1/d2d_upgrades/D2D_CONFIG.yml --USE_MPI --DEBUG

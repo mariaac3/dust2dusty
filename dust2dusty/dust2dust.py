@@ -28,7 +28,7 @@ Usage:
     python dust2dust.py --CONFIG IN_DUST2DUST.yml
 
     Optional flags:
-        --test_run: Run single likelihood evaluation for testing
+        --TEST_RUN: Run single likelihood evaluation for testing
         --DEBUG: Enable verbose output
 """
 
@@ -45,7 +45,6 @@ from dust2dusty.utils import cmd_exe, normhisttodata, pconv, set_numpy_threads
 # Call BEFORE importing numpy
 set_numpy_threads(4)
 
-from multiprocessing import current_process
 
 import numpy as np
 import pandas as pd
@@ -303,6 +302,32 @@ def generate_genpdf_varnames(inp_params: list[str], splitparam: str) -> str:
         varnames.append("SIM_beta")
 
     return ",".join(varnames)
+
+
+def get_worker_index():
+    """
+    Get worker rank/index adaptively for MPI or multiprocessing.
+    Returns 0 for serial execution.
+    """
+    try:
+        # Try MPI first
+        from mpi4py import MPI
+
+        return MPI.COMM_WORLD.Get_rank()
+    except ImportError:
+        pass
+
+    try:
+        # Try multiprocessing
+        import multiprocessing as mp
+
+        process = mp.current_process()
+        if hasattr(process, "_identity") and process._identity:
+            return process._identity[0] - 1  # 0-indexed
+        else:
+            return 0  # Main process or SerialPool
+    except:
+        return 0  # Fallback for serial execution
 
 
 def init_salt2mu_worker_connection() -> SALT2mu:
@@ -687,10 +712,7 @@ def _init_worker(
     _WORKER_DEBUGFLAG = debug
     _CONFIG = config
 
-    if debug:
-        _WORKER_INDEX = 999
-    else:
-        _WORKER_INDEX = current_process()._identity[0] - 1
+    _WORKER_INDEX = get_worker_index()
 
     _WORKER_SALT2MU_CONNECTION = init_salt2mu_worker_connection()
     _WORKER_REALDATA_SALT2MU_RESULTS = realdata_salt2mu_results

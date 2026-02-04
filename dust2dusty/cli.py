@@ -5,7 +5,7 @@ This module provides the main entry point for running DUST2DUSTY from the
 command line, as well as configuration loading and the Config dataclass.
 
 Usage:
-    dust2dusty --CONFIG config.yml [--DEBUG] [--test_run] [--NOWEIGHT]
+    dust2dusty --CONFIG config.yml [--DEBUG] [--TEST_RUN] [--NOWEIGHT]
 
 Example:
     dust2dusty --CONFIG IN_DUST2DUST.yml --DEBUG
@@ -17,7 +17,8 @@ import argparse
 import logging
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import _MISSING_TYPE, dataclass, field, fields
+from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
@@ -25,6 +26,7 @@ import yaml
 from numpy.typing import NDArray
 
 from dust2dusty.logging import get_logger, setup_logging
+from dust2dusty.utils import __dust2dust_str__
 
 
 @dataclass
@@ -48,11 +50,11 @@ class Config:
         splitparam: Primary split parameter name.
         parameter_initialization: Initialization specs for each parameter.
         splitarr: Array generation strings for split variables.
-        cmd_data: Command-line override for data input.
-        cmd_sim: Command-line override for simulation input.
-        test_run: If True, run single likelihood evaluation only.
+        CMD_DATA: Command-line override for data input.
+        CMD_SIM: Command-line override for simulation input.
+        TEST_RUN: If True, run single likelihood evaluation only.
         debug: If True, enable verbose debug output.
-        noweight: If True, disable reweighting function.
+        NOWEIGHT: If True, disable reweighting function.
 
     Class Attributes:
         PARAM_TO_SALT2MU: Maps internal names to SALT2mu column names.
@@ -124,7 +126,7 @@ class Config:
     simref_file: str
 
     # File paths (optional)
-    outdir: str = ""
+    outdir: str = "./dust2dust_output/"
     chains: str | None = None
 
     # Parameter configuration
@@ -136,14 +138,18 @@ class Config:
     parameter_initialization: dict[str, list[Any]] = field(default_factory=dict)
     splitarr: dict[str, str] = field(default_factory=dict)
 
-    # Command-line overrides
-    cmd_data: str | None = None
-    cmd_sim: str | None = None
+    # Command line arguments
+    N_PROCESS: int | None = None
 
-    # Runtime flags
-    test_run: bool = False
-    debug: bool = False
-    noweight: bool = False
+    # - Command-line overrides
+    CMD_DATA: str | None = None
+    CMD_SIM: str | None = None
+
+    # - Runtime flags
+    USE_MPI: bool = False
+    TEST_RUN: bool = False
+    DEBUG: bool = False
+    NOWEIGHT: bool = False
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any], args: argparse.Namespace) -> Config:
@@ -173,15 +179,24 @@ class Config:
             parameter_initialization=config_dict["PARAMETER_INITIALIZATION"],
             splitarr=config_dict["SPLITARR"],
             # Command-line arguments
-            cmd_data=args.CMD_DATA,
-            cmd_sim=args.CMD_SIM,
-            test_run=args.test_run,
-            debug=args.DEBUG or args.test_run,
-            noweight=args.NOWEIGHT,
+            CMD_DATA=args.CMD_DATA,
+            CMD_SIM=args.CMD_SIM,
+            TEST_RUN=args.TEST_RUN,
+            DEBUG=args.DEBUG or args.TEST_RUN,
+            NOWEIGHT=args.NOWEIGHT,
+            USE_MPI=args.USE_MPI,
+            N_PROCESS=args.N_PROCESS,
         )
 
+    def __post_init__(self):
+        # Loop through the fields
+        for f in fields(self):
+            # If there is a default and the value of the field is none we can assign a value
+            if not isinstance(f.default, _MISSING_TYPE) and getattr(self, f.name) is None:
+                setattr(self, f.name, f.default)
 
-def create_output_directories(outdir: str, logger: logging.Logger) -> str:
+
+def create_output_directories(outdir: str, logger: logging.Logger):
     """
     Create output directory structure for DUST2DUSTY results.
 
@@ -204,26 +219,9 @@ def create_output_directories(outdir: str, logger: logging.Logger) -> str:
         SystemExit: If directory structure cannot be created.
     """
     # Use current directory if none specified
-    if not outdir:
-        outdir = os.getcwd()
-
-    # Expand ~ and ensure absolute path
-    outdir = os.path.abspath(os.path.expanduser(outdir))
-
-    # Ensure trailing slash
-    if not outdir.endswith("/"):
-        outdir += "/"
-
-    # Create main directory if it doesn't exist
-    if not os.path.exists(outdir):
-        logger.debug(f"Creating output directory: {outdir}")
-        try:
-            os.makedirs(outdir)
-        except OSError as e:
-            logger.error(f"Could not create directory {outdir}: {e}")
-            sys.exit(1)
-    else:
-        logger.debug(f"Using existing directory: {outdir}")
+    outdir = Path(outdir)
+    logger.debug(f"Create main directory {outdir.absolute()}")
+    outdir.mkdir(parents=True, exist_ok=True)
 
     # Create required subdirectories
     required_subdirs = [
@@ -235,22 +233,9 @@ def create_output_directories(outdir: str, logger: logging.Logger) -> str:
         "worker_files",
     ]
     for subdir in required_subdirs:
-        subdir_path = os.path.join(outdir, subdir)
-        if not os.path.exists(subdir_path):
-            try:
-                os.makedirs(subdir_path)
-                logger.debug(f"  Created subdirectory: {subdir}/")
-            except OSError as e:
-                logger.error(f"Could not create subdirectory {subdir_path}: {e}")
-                sys.exit(1)
-
-    # Verify all required subdirectories exist
-    missing_dirs = [d for d in required_subdirs if not os.path.isdir(os.path.join(outdir, d))]
-    if missing_dirs:
-        logger.error(f"Missing required subdirectories: {missing_dirs}")
-        sys.exit(1)
-
-    return outdir
+        subdir_path = outdir / subdir
+        logger.debug(f"Create sub directory {subdir_path.absolute()}")
+        subdir_path.mkdir(parents=True, exist_ok=True)
 
 
 def load_config(config_path: str, args: argparse.Namespace, logger: logging.Logger) -> Config:
@@ -287,7 +272,7 @@ def load_config(config_path: str, args: argparse.Namespace, logger: logging.Logg
     # Load YAML file
     try:
         with open(config_path) as cfgfile:
-            config_dict = yaml.load(cfgfile, Loader=yaml.FullLoader)
+            config_dict = yaml.safe_load(cfgfile)
     except yaml.YAMLError as e:
         logger.error(f"Invalid YAML syntax in {config_path}")
         logger.error(e)
@@ -312,17 +297,17 @@ def load_config(config_path: str, args: argparse.Namespace, logger: logging.Logg
     # Create Config object from dictionary and args
     config = Config.from_dict(config_dict, args)
 
-    logger.debug(f"Loaded configuration from: {config_path}")
+    logger.info(f"Loaded configuration from: {config_path}")
 
     # Set up output directory structure
-    config.outdir = create_output_directories(config.outdir, logger)
+    create_output_directories(config.outdir, logger)
 
     # Log configuration summary
-    logger.debug("Configuration finalized successfully.")
-    logger.debug(f"  Data: {config.data_input}")
-    logger.debug(f"  Simulation: {config.sim_input}")
-    logger.debug(f"  Parameters to fit: {', '.join(config.inp_params)}")
-    logger.debug(f"  Output directory: {config.outdir}")
+    logger.info("Configuration finalized successfully:")
+    logger.info(f"---- Data: {Path(config.data_input).absolute()}")
+    logger.info(f"---- Simulation: {Path(config.sim_input).absolute()}")
+    logger.info(f"---- Parameters to fit: {', '.join(config.inp_params)}")
+    logger.info(f"---- Output directory: {Path(config.outdir).absolute()}")
 
     return config
 
@@ -349,7 +334,7 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--test_run",
+        "--TEST_RUN",
         action="store_true",
         help="Run single likelihood evaluation for testing (does not launch MCMC)",
     )
@@ -380,6 +365,18 @@ def get_args() -> argparse.Namespace:
         help="Command-line override for SALT2mu simulation input file",
     )
 
+    parser.add_argument(
+        "--USE_MPI",
+        action="store_true",
+        help="Use MPI to distribute process",
+    )
+
+    parser.add_argument(
+        "--N_PROCESS", type=int, default=None, help="Number of processes to run in parallel"
+    )
+
+    parser.add_argument("--VERBOSE", action="store_true", help="Trigger more verbose")
+
     return parser.parse_args()
 
 
@@ -405,48 +402,45 @@ def main() -> int:
     args = get_args()
 
     # Set up logging before loading config
-    debug = args.DEBUG or args.test_run
+    debug = args.DEBUG or args.TEST_RUN
     setup_logging(debug=debug)
     logger = get_logger()
+    logger.info(__dust2dust_str__)
 
     # Load and validate configuration
     config = load_config(args.CONFIG, args, logger)
 
     # Initialize real data
-    realdata_salt2mu_results = init_salt2mu_realdata(config, debug=debug)
+    realdata_salt2mu_results = init_salt2mu_realdata(config, logger, debug=debug)
 
-    if debug:
-        nwalkers = 1
-        ndim = 0
-        pos = np.array([])
-    else:
-        pos, nwalkers, ndim = input_cleaner(
-            config.inp_params,
-            config.paramshapesdict,
-            config.splitdict,
-            config.DISTRIBUTION_PARAMETERS,
-            config.parameter_initialization,
-            config.PARAMETER_OVERRIDES,
-            walkfactor=3,
-        )
+    pos, nwalkers, ndim = input_cleaner(
+        config.inp_params,
+        config.paramshapesdict,
+        config.splitdict,
+        config.DISTRIBUTION_PARAMETERS,
+        config.parameter_initialization,
+        config.PARAMETER_OVERRIDES,
+        walkfactor=2,
+    )
 
     # Test run mode - single likelihood evaluation
-    if config.test_run:
+    if config.TEST_RUN:
         _init_worker(config, realdata_salt2mu_results, debug=debug)
         logger.info(f"Test run result: {log_probability(config.params)}")
         sys.exit(0)
 
     # Full MCMC run
-    logger.debug("\n" + "=" * 60)
-    logger.debug("Starting MCMC sampling...")
-    logger.debug(f"  Walkers: {nwalkers}")
-    logger.debug(f"  Dimensions: {ndim}")
-    logger.debug(f"  Parameters: {', '.join(config.inp_params)}")
-    logger.debug("=" * 60 + "\n")
+    logger.info("=" * 60)
+    logger.info("Starting MCMC sampling...")
+    logger.info(f"  Walkers: {nwalkers}")
+    logger.info(f"  Dimensions: {ndim}")
+    logger.info(f"  Parameters: {', '.join(config.inp_params)}")
+    logger.info("=" * 60 + "\n")
+    logger.debug("DEBUG MODE ON")
 
     MCMC(config, pos, nwalkers, ndim, realdata_salt2mu_results, debug=debug)
 
-    logger.info("DUST2DUSTY complete.")
+    logger.info("DUST2DUST(Y) complete.")
     return 0
 
 

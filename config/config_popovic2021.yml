@@ -1,17 +1,17 @@
 ### FILE LOCATIONS ###
-# DATA_INPUT is the SALT2mu file that will be used as 'data'. 
+# DATA_INPUT is the SALT2mu file that will be used as 'data'.
 # This can either be real data or a realistic simulation with the appropriate force_realdata flag
 # Full filepath or local directory is fine.
-# 
+#
 # SIM_INPUT is the SALT2mu file that points to appropriate bounded functions to be reweighted.
 # Alternatively, this can be used with NOWEIGHT option for a non-bounded function.
 # Full filepath or local directory is fine
-#  
+#
 # OUTDIR is a custom directory to output results to, including log files.
 # Full filepath needed for this one.
-# 
+#
 # CHAINS is a filepath to the npz file containing the chain output from a previous run.
-# 
+#
 # SIMREF_FILE - if using bounding functions, point to the SNANA input that contains these bounding functions.
 
 DATA_INPUT: /project2/rkessler/SURVEYS/DES/USERS/djbrout/dustdriver/SALT2mu_ALL_DATA.input
@@ -66,4 +66,4 @@ PARAMETER_INITIALIZATION:  {'c_mu':[-0.08, 0.01, False, [-0.3,-0.04]],
              'EBV_Tau_SIM_ZCMB_high_HOST_LOGMASS_high':[0.13, 0.02, True, [0.05, 0.2]],
              'beta_mu':[2, 0.5, False, [1,3]],
              'beta_std':[.2, .07, True, [0, 1]],
-} 
+}

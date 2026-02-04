@@ -56,11 +56,10 @@ from dataclasses import dataclass, field
 from multiprocessing import Pool, cpu_count, current_process
 from typing import Any, ClassVar, Dict, List, Optional
 
+import callSALT2mu
 import emcee
 import numpy as np
 import yaml
-
-import callSALT2mu
 from dust2dust_logging import setup_logging
 
 JOBNAME_SALT2mu = "SALT2mu.exe"  # public default code
@@ -87,8 +86,8 @@ class Config:
     Attributes organized by purpose:
     - File paths: data_input, sim_input, simref_file, outdir, chains
     - Parameters: inp_params, params, paramshapesdict, splitdict, splitparam, parameter_initialization, splitarr
-    - Command-line overrides: cmd_data, cmd_sim
-    - Flags: single, debug, noweight
+    - Command-line overrides: CMD_DATA, CMD_SIM
+    - Flags: single, debug, NOWEIGHT
     """
 
     # Parameter name mappings for SALT2mu format
@@ -171,13 +170,13 @@ class Config:
     splitarr: Dict[str, str] = field(default_factory=dict)
 
     # Command-line overrides (set by args, not config file)
-    cmd_data: Optional[str] = None
-    cmd_sim: Optional[str] = None
+    CMD_DATA: Optional[str] = None
+    CMD_SIM: Optional[str] = None
 
     # Runtime flags (set by args, not config file)
-    test_run: bool = False
+    TEST_RUN: bool = False
     debug: bool = False
-    noweight: bool = False
+    NOWEIGHT: bool = False
 
     @classmethod
     def from_dict(cls, config_dict: dict, args: argparse.Namespace) -> "Config":
@@ -207,11 +206,11 @@ class Config:
             parameter_initialization=config_dict["PARAMETER_INITIALIZATION"],
             splitarr=config_dict["SPLITARR"],
             # Command-line arguments
-            cmd_data=args.CMD_DATA,
-            cmd_sim=args.CMD_SIM,
-            test_run=args.test_run,
-            debug=args.DEBUG or args.test_run,  # SINGLE implies DEBUG
-            noweight=args.NOWEIGHT,
+            CMD_DATA=args.CMD_DATA,
+            CMD_SIM=args.CMD_SIM,
+            TEST_RUN=args.TEST_RUN,
+            debug=args.DEBUG or args.TEST_RUN,  # SINGLE implies DEBUG
+            NOWEIGHT=args.NOWEIGHT,
         )
 
 
@@ -319,7 +318,7 @@ def load_config(config_path: str, args: argparse.Namespace) -> Config:
 
     # Load YAML file
     try:
-        with open(config_path, "r") as cfgfile:
+        with open(config_path) as cfgfile:
             config_dict = yaml.load(cfgfile, Loader=yaml.FullLoader)
     except yaml.YAMLError as e:
         logger.error(f"Invalid YAML syntax in {config_path}")
@@ -380,7 +379,7 @@ def get_args():
     )
 
     parser.add_argument(
-        "--test_run",
+        "--TEST_RUN",
         action="store_true",
         help="Run single likelihood evaluation for testing (does not launch MCMC)",
     )
@@ -615,7 +614,7 @@ def array_conv(inp, SPLITDICT, SPLITARR):
     arrlist.append(Config.DEFAULT_PARAMETER_RANGES[inp])
     if inp in SPLITDICT.keys():
         for s in SPLITDICT[inp].keys():
-            arrlist.append(eval((SPLITARR[s])))
+            arrlist.append(eval(SPLITARR[s]))
     return arrlist
     # END array_conv
 
@@ -866,7 +865,7 @@ def subprocess_to_snana(OUTDIR, snana_mapping):
         str: 'Done' upon completion
     """
     filein = OUTDIR + "GENPDF.DAT"
-    f = open(filein, "r")
+    f = open(filein)
     lines = f.readlines()
     f.close()
     del lines[0]
@@ -875,7 +874,7 @@ def subprocess_to_snana(OUTDIR, snana_mapping):
     for line in lines:
         f.write(line)
     f.close()
-    f = open(filein, "r")
+    f = open(filein)
     filedata = f.read()
     f.close()
     for i in snana_mapping.keys():
@@ -974,7 +973,7 @@ def init_connection(config, index, real=True, debug=False):
 
     Note:
         Uses config.data_input, config.simref_file, config.inp_params,
-        config.splitparam, config.debug to configure SALT2mu command.
+        config.splitparam, config.DEBUG to configure SALT2mu command.
     """
 
     OPTMASK = 4
@@ -1183,7 +1182,7 @@ def log_prior(theta):
     Args:
         theta: Array of parameter values (length = ndim)
         debug: Unused parameter kept for backwards compatibility. Debug output
-               is controlled by config.debug instead.
+               is controlled by config.DEBUG instead.
 
     Returns:
         float: 0.0 if all parameters within bounds, -np.inf otherwise
@@ -1451,7 +1450,7 @@ if __name__ == "__main__":
     args = get_args()
 
     # Set up logging before loading config (uses shared logging module)
-    DEBUG = args.DEBUG or args.test_run
+    DEBUG = args.DEBUG or args.TEST_RUN
     setup_logging(debug=DEBUG)
     logger = get_logger()
 
@@ -1474,7 +1473,7 @@ if __name__ == "__main__":
         )
 
     # 2. Test run (before Pool is created in MCMC)
-    if config.test_run:
+    if config.TEST_RUN:
         # For test run, initialize worker state directly and call log_probability
         _init_worker(config, realdata, debug=DEBUG)
         _worker_connection.quit()
