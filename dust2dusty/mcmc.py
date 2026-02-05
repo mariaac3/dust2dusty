@@ -72,8 +72,11 @@ def MCMC(
     is_worker = config is None
 
     if is_worker:
-        # Worker process: just enter the pool and wait for tasks
+        # Worker process: receive initialization data via broadcast and enter pool
         with schwimmbad.MPIPool() as pool:
+            # Receive initialization data from master
+            worker_config, worker_realdata, worker_debug = pool.comm.bcast(None, root=0)
+            _init_worker(worker_config, worker_realdata, worker_debug)
             pool.wait()
         sys.exit(0)
 
@@ -91,20 +94,18 @@ def MCMC(
     autocorr_index = 0
     old_tau: float | NDArray = np.inf
 
-    with schwimmbad.choose_pool(
-        mpi=config.USE_MPI,
-        processes=1,  # Always 1 - use MPI for parallelization
-        initializer=_init_worker,
-        initargs=(config, realdata_salt2mu_results, debug),
-    ) as pool:
-        if isinstance(pool, schwimmbad.SerialPool):
-            _init_worker(config, realdata_salt2mu_results, debug)
-            n_proc = 1
-        elif isinstance(pool, schwimmbad.MPIPool):
-            n_proc = pool.comm.Get_size()
-        else:
-            n_proc = 1
+    # Choose pool type - MPIPool doesn't support initializer argument
+    if config.USE_MPI:
+        pool = schwimmbad.MPIPool()
+        n_proc = pool.comm.Get_size()
+        # Broadcast initialization data to all workers
+        pool.comm.bcast((config, realdata_salt2mu_results, debug), root=0)
+    else:
+        pool = schwimmbad.SerialPool()
+        _init_worker(config, realdata_salt2mu_results, debug)
+        n_proc = 1
 
+    with pool:
         logger.info(
             f"Initializing MCMC with {n_proc} CPUs, {nwalkers} walkers, {ndim} dimensions, pool type is {pool.__class__.__name__}"
         )
