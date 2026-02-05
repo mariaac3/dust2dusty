@@ -68,15 +68,22 @@ def MCMC(
         - Saves autocorrelation history to: {outdir}/chains/{data_input}-autocorr.npz
         - Saves thinned samples to: {outdir}/chains/{data_input}-samples_thinned.npz
     """
-    # Check if this is a worker process (called with None config)
-    is_worker = config is None
+    is_worker = False
+    if config.USE_MPI:
+        # Receive initialization data via broadcast BEFORE creating pool
+        from mpi4py import MPI
+
+        comm = MPI.COMM_WORLD
+
+        # Check if this is a worker process (called with None config)
+        is_worker = config is None
 
     if is_worker:
-        # Worker process: receive initialization data via broadcast and enter pool
+        # Receive initialization data from master
+        worker_config, worker_realdata, worker_debug = comm.bcast(None, root=0)
+        _init_worker(worker_config, worker_realdata, worker_debug)
+        # Now enter the pool and wait for tasks
         with schwimmbad.MPIPool() as pool:
-            # Receive initialization data from master
-            worker_config, worker_realdata, worker_debug = pool.comm.bcast(None, root=0)
-            _init_worker(worker_config, worker_realdata, worker_debug)
             pool.wait()
         sys.exit(0)
 
@@ -96,10 +103,11 @@ def MCMC(
 
     # Choose pool type - MPIPool doesn't support initializer argument
     if config.USE_MPI:
+        n_proc = comm.Get_size()
+        # Broadcast initialization data to all workers BEFORE creating pool
+        comm.bcast((config, realdata_salt2mu_results, debug), root=0)
+        # Now create the pool
         pool = schwimmbad.MPIPool()
-        n_proc = pool.comm.Get_size()
-        # Broadcast initialization data to all workers
-        pool.comm.bcast((config, realdata_salt2mu_results, debug), root=0)
     else:
         pool = schwimmbad.SerialPool()
         _init_worker(config, realdata_salt2mu_results, debug)
