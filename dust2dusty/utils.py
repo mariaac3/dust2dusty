@@ -302,6 +302,36 @@ def normhisttodata(
     return datacount[ww], simcount[ww], poisson[ww], ww
 
 
+def write_chain_to_text(
+    chain: NDArray[np.float64],
+    log_prob: NDArray[np.float64],
+    param_names: list[str],
+    filepath: str,
+) -> None:
+    """
+    Write MCMC chain and log-probability to a tab-separated text file.
+
+    Each row represents one walker at one iteration. The file includes a
+    header line with column names prefixed by '#'.
+
+    Args:
+        chain: Chain array of shape (n_iterations, nwalkers, ndim).
+        log_prob: Log-probability array of shape (n_iterations, nwalkers).
+        param_names: List of parameter names (length = ndim).
+        filepath: Output file path.
+    """
+    n_iters, n_walk, _ = chain.shape
+    with open(filepath, "w") as f:
+        header_cols = ["iteration", "walker"] + param_names + ["log_prob"]
+        f.write("# " + "\t".join(header_cols) + "\n")
+        for i in range(n_iters):
+            for w in range(n_walk):
+                row = [str(i), str(w)]
+                row += [f"{val:.8e}" for val in chain[i, w, :]]
+                row.append(f"{log_prob[i, w]:.8e}")
+                f.write("\t".join(row) + "\n")
+
+
 __dust2dust_str__ = """
     ██████╗ ██╗   ██╗███████╗████████╗██████╗ ██████╗ ██╗   ██╗███████╗████████╗
     ██╔══██╗██║   ██║██╔════╝╚══██╔══╝╚════██╗██╔══██╗██║   ██║██╔════╝╚══██╔══╝

@@ -17,6 +17,7 @@ from numpy.typing import NDArray
 
 from dust2dusty.dust2dust import _init_worker, cleanup_worker, log_probability
 from dust2dusty.log import get_logger, setup_logging
+from dust2dusty.utils import pconv
 
 if TYPE_CHECKING:
     from dust2dusty.cli import Config
@@ -125,6 +126,28 @@ def MCMC(
         logger.debug("=" * 60)
         if debug:
             sampler.run_mcmc(pos, 3)
+
+            # Save debug chains to text file for monitoring
+            param_names = pconv(
+                config.inp_params,
+                config.paramshapesdict,
+                config.splitdict,
+                config.DISTRIBUTION_PARAMETERS,
+            )
+            debug_chain_file = (
+                config.outdir
+                + "chains/"
+                + config.data_input.split(".")[0].split("/")[-1]
+                + "-debug_chains.txt"
+            )
+            write_chain_to_text(
+                sampler.get_chain(),
+                sampler.get_log_prob(),
+                param_names,
+                debug_chain_file,
+            )
+            logger.info(f"Debug chains saved to: {debug_chain_file}")
+
             logger.info("Shutting down SALT2mu subprocesses...")
             list(pool.map(cleanup_worker, range(n_proc)))
             logger.info("All SALT2mu subprocesses terminated.")
