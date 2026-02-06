@@ -35,7 +35,6 @@ Usage:
 from __future__ import annotations
 
 import logging
-import os
 from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -573,7 +572,6 @@ def log_likelihood(
         If returnall=True: tuple of (ll_dict, datacount_dict, simcount_dict, poisson_dict).
         Returns -inf if MAXPROB > 1.001 (PDF hitting boundary).
     """
-    logger.debug(f"Current PID is {os.getpid()}")
     logger.debug("writing PDF")
 
     theta_index_dic = thetaconverter(theta)
@@ -602,7 +600,6 @@ def log_likelihood(
     logger.debug("Right before calling LL Creator")
     out_result = compute_and_sum_loglikelihoods(inparr, returnall=returnall)
 
-    _WORKER_SALT2MU_CONNECTION.iter += 1
     return out_result
 
 

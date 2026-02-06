@@ -191,7 +191,7 @@ class SALT2mu:
         for line in iter(self.process.stdout.readline, ""):
             self.logger.debug(line.strip())
             if expected_text in line:
-                self.logger.debug("found expected text")
+                self.logger.debug(f"FOUND '{expected_text}' => STOP WAITING")
                 break
 
             if time.time() - start > timeout:
@@ -241,7 +241,7 @@ class SALT2mu:
                 arr,
             )
 
-        self.logger.info("Launch next step")
+        self.logger.info(f"\n\n##### Launching iteration {self.iter} #####\n")
         self.write_iterend()
 
         # Launch SALT2mu on new dist and wait for done

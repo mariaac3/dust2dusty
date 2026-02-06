@@ -446,7 +446,6 @@ def main() -> int:
         if config.TEST_RUN:
             _init_worker(config, realdata_salt2mu_results, debug=debug)
             logger.info(f"Test run result: {log_probability(config.params, last=True)}")
-
             sys.exit(0)
 
         # Full MCMC run
