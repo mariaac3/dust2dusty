@@ -655,7 +655,7 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
     Returns:
         Log-posterior probability (log_prior + log_likelihood).
     """
-    logger.debug(f"### COMPUTING LOGPROB ON ITERATION {_WORKER_SALT2MU_CONNECTION.iter} ###\n")
+    logger.debug(f"### COMPUTING LOGPROB ON ITERATION {_WORKER_SALT2MU_CONNECTION.iter + 1} ###\n")
     logger.debug(f"   theta: {theta}")
 
     # Prior
