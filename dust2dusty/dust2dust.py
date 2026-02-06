@@ -347,8 +347,8 @@ def init_salt2mu_worker_connection() -> SALT2mu:
     """
     optmask = 4
     directory = "worker_files"
-    # if _WORKER_DEBUGFLAG:
-    #     optmask = 1
+    if _WORKER_DEBUGFLAG:
+        optmask = 1
 
     outdir = Path(_CONFIG.outdir)
     sim_data_out = outdir / f"{directory}/{_WORKER_INDEX}_SUBPROCESS_SIM_OUT.DAT"
@@ -553,8 +553,7 @@ def compute_and_sum_loglikelihoods(
 
 
 def log_likelihood(
-    theta: NDArray[np.float64] | list[float],
-    returnall: bool = False,
+    theta: NDArray[np.float64] | list[float], returnall: bool = False, last: bool = False
 ) -> float | tuple[dict, dict, dict, dict]:
     """
     Calculate log-likelihood for proposed parameter values.
@@ -581,7 +580,7 @@ def log_likelihood(
     logger.debug(f"theta = {theta}, theta_dic={theta_index_dic}")
 
     # Run SALT2mu with these PDFs
-    _WORKER_SALT2MU_CONNECTION.next_iter(theta, theta_index_dic, _CONFIG)
+    _WORKER_SALT2MU_CONNECTION.next_iter(theta, theta_index_dic, _CONFIG, last=last)
 
     if _WORKER_SALT2MU_CONNECTION.salt2mu_results["maxprob"] > 1.001:
         logger.debug(
@@ -651,7 +650,7 @@ def log_prior(theta: NDArray[np.float64] | list[float]) -> float:
         return 0.0
 
 
-def log_probability(theta: NDArray[np.float64] | list[float]) -> float:
+def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float:
     """
     Calculate log-probability (posterior) for MCMC sampling.
 
@@ -668,7 +667,7 @@ def log_probability(theta: NDArray[np.float64] | list[float]) -> float:
     if not np.isfinite(lp):
         logger.debug("WARNING! We returned -inf from small parameters!")
         return -np.inf
-    return lp + log_likelihood(theta)
+    return lp + log_likelihood(theta, **kwargs)
 
 
 # =============================================================================

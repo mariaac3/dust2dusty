@@ -133,7 +133,7 @@ class SALT2mu:
                 self.command = self.command + " write_yaml=1"
 
             self.logger.info("Running realdata=True")
-            self.logger.debug("## ==============RUN SALT2MU DATA================= ##")
+            self.logger.debug("## ============== RUN SALT2MU ON REAL DATA ================= ##")
 
             with (
                 nullcontext()
@@ -142,9 +142,13 @@ class SALT2mu:
             ) as stdout:
                 subprocess.run(self.command, shell=True, stdout=stdout)
             self.getData()
-            self.logger.debug("## =====================END======================= ##")
+            self.logger.debug(
+                "## ===================== END REAL DATA RUN ======================= ##"
+            )
 
         else:
+            self.logger.info("===================== INIT SALT2mu PROCESS =====================")
+            start_time = time.time()
             self.process = subprocess.Popen(
                 self.command,
                 shell=True,
@@ -154,6 +158,11 @@ class SALT2mu:
                 bufsize=0,
             )
             self.wait_until_text_in_output(self.ready_enditer)
+            self.logger.info(
+                "===================== "
+                f"SALT2mu PROCESS initialized in {time.time() - start_time} seconds"
+                " ====================="
+            )
 
     def quit(self) -> None:
         """
@@ -193,6 +202,7 @@ class SALT2mu:
         theta: NDArray[np.float64],
         theta_index_dic: dict[str, list[int]],
         config: Config,
+        last: bool = False,
     ) -> None:
         """
         Advance to next MCMC iteration.
@@ -240,6 +250,8 @@ class SALT2mu:
         self.wait_until_text_in_output(self.ready_enditer)
 
         self.data = self.getData()
+        if last:
+            self.quit()
 
     def getData(self) -> bool:
         """

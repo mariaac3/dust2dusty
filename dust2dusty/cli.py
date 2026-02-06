@@ -224,7 +224,6 @@ def create_output_directories(outdir: str, logger: logging.Logger):
     # Create required subdirectories
     required_subdirs = [
         "chains",
-        "figures",
         "logs",
         "realdata_files",
         "worker_files",
@@ -446,7 +445,8 @@ def main() -> int:
         # Test run mode - single likelihood evaluation (no MPI needed)
         if config.TEST_RUN:
             _init_worker(config, realdata_salt2mu_results, debug=debug)
-            logger.info(f"Test run result: {log_probability(config.params)}")
+            logger.info(f"Test run result: {log_probability(config.params, last=True)}")
+
             sys.exit(0)
 
         # Full MCMC run
