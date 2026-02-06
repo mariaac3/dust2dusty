@@ -124,7 +124,9 @@ def MCMC(
         logger.debug("=" * 60)
         if debug:
             sampler.run_mcmc(pos, 3)
+            list(pool.map(cleanup_worker, range(n_proc)))
             sys.exit(0)
+
         # Run with convergence monitoring
         for _ in sampler.sample(pos, iterations=max_iterations, progress=True):
             # Only check convergence every N steps
@@ -206,5 +208,10 @@ def MCMC(
             logger.warning("Could not compute final autocorrelation time.")
             logger.warning("Chain may be too short for reliable estimates.")
             logger.warning("Consider running longer or checking for convergence issues.")
+
+        # Gracefully shut down SALT2mu subprocesses on all workers
+        logger.info("Shutting down SALT2mu subprocesses...")
+        list(pool.map(cleanup_worker, range(n_proc)))
+        logger.info("All SALT2mu subprocesses terminated.")
 
     return sampler

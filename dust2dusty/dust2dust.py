@@ -711,3 +711,22 @@ def _init_worker(
 
     _WORKER_SALT2MU_CONNECTION = init_salt2mu_worker_connection()
     _WORKER_REALDATA_SALT2MU_RESULTS = realdata_salt2mu_results
+
+
+def cleanup_worker(_: Any = None) -> None:
+    """
+    Gracefully shut down the SALT2mu subprocess for this worker.
+
+    Calls SALT2mu.quit() to send the termination signal (-1) to the
+    subprocess. Designed to be called via pool.map() so each worker
+    cleans up its own connection.
+
+    Args:
+        _: Unused argument (required for pool.map compatibility).
+    """
+    global _WORKER_SALT2MU_CONNECTION
+
+    if _WORKER_SALT2MU_CONNECTION is not None:
+        logger.info(f"Worker {_WORKER_INDEX}: shutting down SALT2mu subprocess")
+        _WORKER_SALT2MU_CONNECTION.quit()
+        _WORKER_SALT2MU_CONNECTION = None
