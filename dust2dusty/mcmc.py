@@ -16,7 +16,7 @@ import schwimmbad
 from numpy.typing import NDArray
 
 from dust2dusty.dust2dust import _init_worker, log_probability
-from dust2dusty.logging import get_logger
+from dust2dusty.log import get_logger, setup_logging
 
 if TYPE_CHECKING:
     from dust2dusty.cli import Config

@@ -25,7 +25,7 @@ import numpy as np
 import yaml
 from numpy.typing import NDArray
 
-from dust2dusty.logging import get_logger, setup_logging
+from dust2dusty.log import add_file_handler, get_logger, setup_logging
 from dust2dusty.utils import __dust2dust_str__
 
 

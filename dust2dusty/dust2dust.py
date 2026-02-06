@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from dust2dusty.logging import get_logger
+from dust2dusty.log import add_file_handler, get_logger
 from dust2dusty.salt2mu import SALT2mu
 
 if TYPE_CHECKING:

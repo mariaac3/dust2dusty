@@ -5,7 +5,7 @@ import logging
 
 def test_get_logger():
     """Test that get_logger returns the correct logger."""
-    from dust2dusty.logging import LOGGER_NAME, get_logger
+    from dust2dusty.log import LOGGER_NAME, get_logger
 
     logger = get_logger()
     assert logger.name == LOGGER_NAME
@@ -14,7 +14,7 @@ def test_get_logger():
 
 def test_setup_logging_default():
     """Test setup_logging with default settings."""
-    from dust2dusty.logging import setup_logging
+    from dust2dusty.log import setup_logging
 
     logger = setup_logging(debug=False)
     assert logger.level == logging.INFO
@@ -22,7 +22,7 @@ def test_setup_logging_default():
 
 def test_setup_logging_debug():
     """Test setup_logging with debug enabled."""
-    from dust2dusty.logging import setup_logging
+    from dust2dusty.log import setup_logging
 
     logger = setup_logging(debug=True)
     assert logger.level == logging.DEBUG
@@ -30,7 +30,7 @@ def test_setup_logging_debug():
 
 def test_setup_walker_logger():
     """Test walker-specific logger creation."""
-    from dust2dusty.logging import LOGGER_NAME, setup_walker_logger
+    from dust2dusty.log import LOGGER_NAME, setup_walker_logger
 
     walker_logger = setup_walker_logger("test_walker", debug=False)
     assert f"{LOGGER_NAME}.worker_salt2mu_test_walker" == walker_logger.name
@@ -41,7 +41,7 @@ def test_add_file_handler():
     import tempfile
     from pathlib import Path
 
-    from dust2dusty.logging import LOGGER_NAME, add_file_handler
+    from dust2dusty.log import LOGGER_NAME, add_file_handler
 
     with tempfile.TemporaryDirectory() as tmpdir:
         log_file = str(Path(tmpdir) / "test.log")

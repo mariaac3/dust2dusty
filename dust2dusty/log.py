@@ -5,7 +5,7 @@ This module provides a unified logging setup for all modules in the package.
 All modules should use the logger obtained from get_logger().
 
 Usage:
-    from dust2dusty.logging import setup_logging, get_logger
+    from dust2dusty.log import setup_logging, get_logger
 
     # In main script:
     setup_logging(debug=True)  # Call once at startup

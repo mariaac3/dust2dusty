@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from dust2dusty.logging import get_logger, setup_walker_logger
+from dust2dusty.log import get_logger, setup_walker_logger
 
 if TYPE_CHECKING:
     from dust2dusty.cli import Config

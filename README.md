@@ -73,7 +73,7 @@ dust2dusty/
 │   ├── cli.py           # Command-line interface
 │   ├── dust2dust.py     # Main MCMC module
 │   ├── salt2mu.py       # SALT2mu.exe interface
-│   └── logging.py       # Shared logging configuration
+│   └── log.py           # Shared logging configuration
 ├── tests/               # Test suite
 ├── config/              # Example configuration files
 ├── pyproject.toml       # Package metadata and dependencies
