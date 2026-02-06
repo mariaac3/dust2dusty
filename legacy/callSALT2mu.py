@@ -33,7 +33,6 @@ from io import StringIO
 
 import numpy as np
 import pandas as pd
-
 from dust2dust_logging import get_logger
 
 # Module-level logger (uses shared logging from dust2dust_logging)
@@ -84,7 +83,7 @@ class SALT2mu:
         """
         # Get walker ID from mapsout filename for walker-specific logging
         walker_id = os.path.basename(mapsout).split("_")[0]
-        self.logger = setup_walker_logger(walker_id, debug=debug)
+        self.logger = setup_saltmu_logger(walker_id, debug=debug)
 
         self.iter = -1
         self.debug = debug  # Boolean. Default False.
@@ -93,7 +92,7 @@ class SALT2mu:
         self.done = "Graceful Program Exit. Bye."
         self.initready = "Finished SUBPROCESS_INIT"
         self.crosstalkfile = open(mapsout, "w")
-        self.SALT2muoutputs = open(SALT2muout, "r")  # An output file
+        self.SALT2muoutputs = open(SALT2muout)  # An output file
 
         self.command = command % (mapsout, SALT2muout, log)
 
@@ -164,7 +163,7 @@ class SALT2mu:
                 arr.append(config.DEFAULT_PARAMETER_RANGES[par_key])
                 if par_key in config.splitdict.keys():
                     for s in config.splitdict[par_key].keys():
-                        arr.append(eval((config.splitarr[s])))
+                        arr.append(eval(config.splitarr[s]))
 
             self.write_generic_PDF(
                 par_key,

@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from dust2dusty.log import get_logger, setup_walker_logger
+from dust2dusty.log import get_logger
 
 if TYPE_CHECKING:
     from dust2dusty.cli import Config
@@ -101,7 +101,7 @@ class SALT2mu:
         if is_realdata:
             self.logger = logger
         else:
-            self.logger: logging.Logger = setup_walker_logger(
+            self.logger: logging.Logger = setup_saltmu_logger(
                 walker_id, log_dir=log_dir, debug=debug
             )
 

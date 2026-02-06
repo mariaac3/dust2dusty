@@ -135,7 +135,7 @@ def get_logger() -> logging.Logger:
     return logging.getLogger(LOGGER_NAME)
 
 
-def setup_walker_logger(
+def setup_saltmu_logger(
     walker_id: int | str, log_dir: str = "logs", debug: bool = False
 ) -> logging.Logger:
     """

@@ -28,11 +28,11 @@ def test_setup_logging_debug():
     assert logger.level == logging.DEBUG
 
 
-def test_setup_walker_logger():
+def test_setup_saltmu_logger():
     """Test walker-specific logger creation."""
-    from dust2dusty.log import LOGGER_NAME, setup_walker_logger
+    from dust2dusty.log import LOGGER_NAME, setup_saltmu_logger
 
-    walker_logger = setup_walker_logger("test_walker", debug=False)
+    walker_logger = setup_saltmu_logger("test_walker", debug=False)
     assert f"{LOGGER_NAME}.worker_salt2mu_test_walker" == walker_logger.name
 
 

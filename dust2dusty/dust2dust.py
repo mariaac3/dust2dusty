@@ -572,9 +572,8 @@ def log_likelihood(
         If returnall=True: tuple of (ll_dict, datacount_dict, simcount_dict, poisson_dict).
         Returns -inf if MAXPROB > 1.001 (PDF hitting boundary).
     """
-    logger.debug("writing PDF")
-
     theta_index_dic = thetaconverter(theta)
+
     logger.debug(f"theta = {theta}, theta_dic={theta_index_dic}")
 
     # Run SALT2mu with these PDFs
@@ -587,7 +586,6 @@ def log_likelihood(
         )
         return -np.inf
 
-    logger.debug("Right before calculation")
     bindf = _WORKER_SALT2MU_CONNECTION.salt2mu_results["bindf"].dropna()
     sim_vals = dffixer(bindf, "ANALYSIS")
 
@@ -597,7 +595,6 @@ def log_likelihood(
     # Build dictionary pairing data and simulation values
     inparr = {key: [real_vals[key], sim_vals[key]] for key in real_vals.keys()}
 
-    logger.debug("Right before calling LL Creator")
     out_result = compute_and_sum_loglikelihoods(inparr, returnall=returnall)
 
     return out_result
@@ -660,6 +657,9 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
     Returns:
         Log-posterior probability (log_prior + log_likelihood).
     """
+    logger.debug(f"### COMPUTING LOGPROB ON ITERATION {_WORKER_SALT2MU_CONNECTION.iter} ###")
+    logger.debug(f"   theta: {theta}")
+
     lp = log_prior(theta)
     if not np.isfinite(lp):
         logger.debug("WARNING! We returned -inf from small parameters!")
@@ -703,10 +703,14 @@ def _init_worker(
 
     log_path = str(Path(config.outdir) / "logs" / f"worker_{_WORKER_INDEX}.log")
     add_file_handler(log_path)
-    logger.info(f"Worker {_WORKER_INDEX} logging to {log_path}")
 
     _WORKER_SALT2MU_CONNECTION = init_salt2mu_worker_connection()
     _WORKER_REALDATA_SALT2MU_RESULTS = realdata_salt2mu_results
+
+    logger.info(f"==== Worker {_WORKER_INDEX} INITIALIZED ====")
+    logger.info(f"DEBUG MODE: {_WORKER_DEBUGFLAG}")
+    logger.info(f"Logger set to {log_path}")
+    logger.info("============================================")
 
 
 def cleanup_worker(_: Any = None) -> None:
