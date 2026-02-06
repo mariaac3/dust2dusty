@@ -16,7 +16,7 @@ import schwimmbad
 from numpy.typing import NDArray
 
 from dust2dusty.dust2dust import _init_worker, log_probability
-from dust2dusty.logging import get_logger
+from dust2dusty.log import get_logger, setup_logging
 
 if TYPE_CHECKING:
     from dust2dusty.cli import Config
@@ -68,16 +68,18 @@ def MCMC(
         - Saves autocorrelation history to: {outdir}/chains/{data_input}-autocorr.npz
         - Saves thinned samples to: {outdir}/chains/{data_input}-samples_thinned.npz
     """
-    # Check if this is a worker process (called with None config)
+    # Detect worker vs master before accessing config attributes
     is_worker = config is None
 
     if is_worker or config.USE_MPI:
-        # Receive initialization data via broadcast BEFORE creating pool
         from mpi4py import MPI
 
         comm = MPI.COMM_WORLD
 
     if is_worker:
+        # Set up basic logging for this worker process
+        setup_logging(debug=False)
+
         # Receive initialization data from master
         worker_config, worker_realdata, worker_debug = comm.bcast(None, root=0)
         sys.stdout.flush()

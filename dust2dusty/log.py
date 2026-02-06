@@ -5,7 +5,7 @@ This module provides a unified logging setup for all modules in the package.
 All modules should use the logger obtained from get_logger().
 
 Usage:
-    from dust2dusty.logging import setup_logging, get_logger
+    from dust2dusty.log import setup_logging, get_logger
 
     # In main script:
     setup_logging(debug=True)  # Call once at startup
@@ -97,6 +97,30 @@ def setup_logging(
     return logger
 
 
+def add_file_handler(log_file: str, level: int = logging.DEBUG) -> None:
+    """
+    Add a file handler to the package-wide logger.
+
+    Can be called at any time to attach file logging, even after
+    setup_logging() has already been called. Useful for adding
+    per-process log files (master, workers) once the output directory
+    is known.
+
+    Args:
+        log_file: Path to the log file.
+        level: Logging level for the file handler (default: DEBUG).
+    """
+    logger = logging.getLogger(LOGGER_NAME)
+    file_handler = logging.FileHandler(log_file, mode="w")
+    file_handler.setLevel(level)
+    file_formatter = logging.Formatter(
+        fmt="%(asctime)s [%(levelname)8s |%(filename)21s:%(lineno)3d]   %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+
+
 def get_logger() -> logging.Logger:
     """
     Get the package-wide logger.
@@ -115,21 +139,21 @@ def setup_walker_logger(
     walker_id: int | str, log_dir: str = "logs", debug: bool = False
 ) -> logging.Logger:
     """
-    Create a logger for a specific MCMC walker subprocess.
+    Create a logger for a specific worker's SALT2mu subprocess.
 
-    Each walker gets its own log file for detailed debugging of subprocess
+    Each worker gets its own log file for detailed debugging of subprocess
     communication with SALT2mu.exe. Logs are always written to files (never
     to terminal).
 
     Args:
-        walker_id: Integer or string identifier for the walker.
+        walker_id: Integer or string identifier for the worker.
         log_dir: Directory for log files.
         debug: If True, log level is DEBUG; otherwise INFO.
 
     Returns:
-        Logger instance for this specific walker.
+        Logger instance for this specific worker's SALT2mu subprocess.
     """
-    logger_name = f"{LOGGER_NAME}.walker_{walker_id}"
+    logger_name = f"{LOGGER_NAME}.worker_salt2mu_{walker_id}"
     logger = logging.getLogger(logger_name)
 
     # Avoid adding handlers multiple times
@@ -139,8 +163,8 @@ def setup_walker_logger(
     level = logging.DEBUG if debug else logging.INFO
     logger.setLevel(level)
 
-    # File handler for walker-specific log (always write to file)
-    file_handler = logging.FileHandler(f"{log_dir}/walker_{walker_id}.log", mode="w")
+    # File handler for worker-specific SALT2mu log (always write to file)
+    file_handler = logging.FileHandler(f"{log_dir}/worker_salt2mu_{walker_id}.log", mode="w")
     file_handler.setLevel(level)
     formatter = logging.Formatter(
         fmt="%(asctime)s %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"

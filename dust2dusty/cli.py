@@ -25,7 +25,7 @@ import numpy as np
 import yaml
 from numpy.typing import NDArray
 
-from dust2dusty.logging import get_logger, setup_logging
+from dust2dusty.log import add_file_handler, get_logger, setup_logging
 from dust2dusty.utils import __dust2dust_str__
 
 
@@ -202,7 +202,6 @@ def create_output_directories(outdir: str, logger: logging.Logger):
     Creates the main output directory and required subdirectories:
         - chains: MCMC chain outputs
         - figures: Diagnostic plots
-        - parallel: Subprocess communication files
         - logs: Log files
         - realdata_files: Real data SALT2mu outputs
         - worker_files: Worker subprocess files
@@ -226,7 +225,6 @@ def create_output_directories(outdir: str, logger: logging.Logger):
     required_subdirs = [
         "chains",
         "figures",
-        "parallel",
         "logs",
         "realdata_files",
         "worker_files",
@@ -430,6 +428,9 @@ def main() -> int:
         logger.info(__dust2dust_str__)
 
         config = load_config(args.CONFIG, args, logger)
+        add_file_handler(str(Path(config.outdir) / "logs" / "master.log"))
+        logger.info("Master log file created.")
+
         realdata_salt2mu_results = init_salt2mu_realdata(config, logger, debug=debug)
 
         pos, nwalkers, ndim = input_cleaner(

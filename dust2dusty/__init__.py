@@ -14,7 +14,7 @@ Modules:
     dust2dust: Worker-dependent likelihood functions and SALT2mu connection.
     mcmc: Main MCMC sampling function using emcee.
     salt2mu: Interface to SALT2mu.exe subprocess.
-    logging: Shared logging configuration.
+    log: Shared logging configuration.
     utils: Utility functions for parameter handling and normalization.
 
 Example Usage:
@@ -25,7 +25,7 @@ Example Usage:
     Python API::
 
         from dust2dusty import Config, load_config, MCMC
-        from dust2dusty.logging import setup_logging
+        from dust2dusty.log import setup_logging
         from dust2dusty.utils import init_salt2mu_realdata, input_cleaner
 
         setup_logging(debug=True)
@@ -45,7 +45,7 @@ from dust2dusty.dust2dust import (
     log_prior,
     log_probability,
 )
-from dust2dusty.logging import get_logger, setup_logging
+from dust2dusty.log import get_logger, setup_logging
 from dust2dusty.mcmc import MCMC
 from dust2dusty.salt2mu import SALT2mu
 from dust2dusty.utils import (
