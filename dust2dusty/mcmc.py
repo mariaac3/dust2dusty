@@ -15,7 +15,7 @@ import numpy as np
 import schwimmbad
 from numpy.typing import NDArray
 
-from dust2dusty.dust2dust import _init_worker, log_probability
+from dust2dusty.dust2dust import _init_worker, cleanup_worker, log_probability
 from dust2dusty.log import get_logger, setup_logging
 
 if TYPE_CHECKING:
@@ -125,7 +125,9 @@ def MCMC(
         logger.debug("=" * 60)
         if debug:
             sampler.run_mcmc(pos, 3)
+            logger.info("Shutting down SALT2mu subprocesses...")
             list(pool.map(cleanup_worker, range(n_proc)))
+            logger.info("All SALT2mu subprocesses terminated.")
             sys.exit(0)
 
         # Run with convergence monitoring
