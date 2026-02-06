@@ -68,17 +68,18 @@ def MCMC(
         - Saves autocorrelation history to: {outdir}/chains/{data_input}-autocorr.npz
         - Saves thinned samples to: {outdir}/chains/{data_input}-samples_thinned.npz
     """
-    is_worker = False
-    if config.USE_MPI:
-        # Receive initialization data via broadcast BEFORE creating pool
+    # Detect worker vs master before accessing config attributes
+    is_worker = config is None
+
+    if is_worker or config.USE_MPI:
         from mpi4py import MPI
 
         comm = MPI.COMM_WORLD
 
-        # Check if this is a worker process (called with None config)
-        is_worker = config is None
-
     if is_worker:
+        # Set up basic logging for this worker process
+        setup_logging(debug=False)
+
         # Receive initialization data from master
         worker_config, worker_realdata, worker_debug = comm.bcast(None, root=0)
         _init_worker(worker_config, worker_realdata, worker_debug)

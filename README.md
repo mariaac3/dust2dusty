@@ -80,6 +80,35 @@ dust2dusty/
 └── README.md
 ```
 
+## Output Directory Structure
+
+Running `dust2dusty` creates the following output tree (default `./dust2dust_output/`):
+
+```
+{outdir}/
+├── chains/                          # MCMC chain storage
+│   ├── {data_input}-chains.h5       # Full chains (HDF5, emcee backend)
+│   ├── {data_input}-autocorr.npz    # Autocorrelation time history
+│   └── {data_input}-samples_thinned.npz  # Thinned samples with burn-in removed
+├── logs/                            # All log files
+│   ├── master.log                   # Master process: config, setup, MCMC progress
+│   ├── worker_0.log                 # Worker rank 0: likelihood evaluations
+│   ├── worker_1.log                 # Worker rank 1 (MPI only)
+│   ├── worker_N.log                 # Worker rank N (MPI only)
+│   ├── worker_salt2mu_0.log          # SALT2mu subprocess I/O for worker 0
+│   ├── worker_salt2mu_1.log          # SALT2mu subprocess I/O for worker 1
+│   └── worker_salt2mu_N.log          # SALT2mu subprocess I/O for worker N
+├── figures/                         # Diagnostic plots
+├── realdata_files/                  # Real data SALT2mu outputs
+└── worker_files/                    # Per-worker SALT2mu subprocess files
+    ├── {rank}_SUBPROCESS_SIM_OUT.DAT
+    ├── {rank}_PYTHONCROSSTALK_OUT.DAT
+    └── {rank}_SUBPROCESS_LOG_SIM.STDOUT
+```
+
+In serial mode you get `master.log` + `worker_0.log` + `worker_salt2mu_0.log`.
+In MPI mode with N ranks you get `master.log` + `worker_{0..N-1}.log` + `worker_salt2mu_{0..N-1}.log`.
+
 ## Development
 
 ### Running Tests

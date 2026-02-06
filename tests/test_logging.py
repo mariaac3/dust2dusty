@@ -33,4 +33,34 @@ def test_setup_walker_logger():
     from dust2dusty.logging import LOGGER_NAME, setup_walker_logger
 
     walker_logger = setup_walker_logger("test_walker", debug=False)
-    assert f"{LOGGER_NAME}.walker_test_walker" == walker_logger.name
+    assert f"{LOGGER_NAME}.worker_salt2mu_test_walker" == walker_logger.name
+
+
+def test_add_file_handler():
+    """Test that add_file_handler creates a log file and writes to it."""
+    import tempfile
+    from pathlib import Path
+
+    from dust2dusty.logging import LOGGER_NAME, add_file_handler
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        log_file = str(Path(tmpdir) / "test.log")
+        add_file_handler(log_file)
+
+        logger = logging.getLogger(LOGGER_NAME)
+        logger.warning("test message from add_file_handler")
+
+        # Flush all handlers
+        for h in logger.handlers:
+            h.flush()
+
+        content = Path(log_file).read_text()
+        assert "test message from add_file_handler" in content
+
+        # Clean up: remove the handler we added
+        for h in logger.handlers[:]:
+            if isinstance(h, logging.FileHandler) and h.baseFilename == str(
+                Path(log_file).resolve()
+            ):
+                logger.removeHandler(h)
+                h.close()

@@ -705,5 +705,9 @@ def _init_worker(
 
     _WORKER_INDEX = get_worker_index()
 
+    log_path = str(Path(config.outdir) / "logs" / f"worker_{_WORKER_INDEX}.log")
+    add_file_handler(log_path)
+    logger.info(f"Worker {_WORKER_INDEX} logging to {log_path}")
+
     _WORKER_SALT2MU_CONNECTION = init_salt2mu_worker_connection()
     _WORKER_REALDATA_SALT2MU_RESULTS = realdata_salt2mu_results
