@@ -707,6 +707,12 @@ def _init_worker(
 
     _WORKER_INDEX = get_worker_index()
 
+    # Update logger level to match debug flag (worker may have been
+    # initialised with setup_logging(debug=False) before the real flag
+    # was known).
+    if debug:
+        logging.getLogger("dust2dusty").setLevel(logging.DEBUG)
+
     log_path = str(Path(config.outdir) / "logs" / f"worker_{_WORKER_INDEX}.log")
     add_file_handler(log_path)
 
