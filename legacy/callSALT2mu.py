@@ -83,7 +83,7 @@ class SALT2mu:
         """
         # Get walker ID from mapsout filename for walker-specific logging
         walker_id = os.path.basename(mapsout).split("_")[0]
-        self.logger = setup_saltmu_logger(walker_id, debug=debug)
+        self.logger = setup_salt2mu_logger(walker_id, debug=debug)
 
         self.iter = -1
         self.debug = debug  # Boolean. Default False.

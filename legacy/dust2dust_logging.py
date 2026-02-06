@@ -99,7 +99,7 @@ def get_logger():
     return logging.getLogger(LOGGER_NAME)
 
 
-def setup_saltmu_logger(walker_id, log_dir="logs", debug=False):
+def setup_salt2mu_logger(walker_id, log_dir="logs", debug=False):
     """
     Create a logger for a specific MCMC walker subprocess.
 

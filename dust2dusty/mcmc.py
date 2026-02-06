@@ -17,7 +17,7 @@ from numpy.typing import NDArray
 
 from dust2dusty.dust2dust import _init_worker, cleanup_worker, log_probability
 from dust2dusty.log import get_logger, setup_logging
-from dust2dusty.utils import pconv
+from dust2dusty.utils import pconv, write_chain_to_text
 
 if TYPE_CHECKING:
     from dust2dusty.cli import Config
@@ -92,17 +92,23 @@ def MCMC(
 
     # Master process continues with full MCMC setup
     # Set up HDF5 backend for robust chain storage
-    chain_filename = (
-        config.outdir + "chains/" + config.data_input.split(".")[0].split("/")[-1] + "-chains.h5"
-    )
-    backend = emcee.backends.HDFBackend(chain_filename)
-    backend.reset(nwalkers, ndim)
-    logger.debug(f"Chain storage initialized: {chain_filename}")
+    if debug:
+        backend = None
+    else:
+        chain_filename = (
+            config.outdir
+            + "chains/"
+            + config.data_input.split(".")[0].split("/")[-1]
+            + "-chains.h5"
+        )
+        backend = emcee.backends.HDFBackend(chain_filename)
+        backend.reset(nwalkers, ndim)
+        logger.debug(f"Chain storage initialized: {chain_filename}")
 
-    # Track autocorrelation time history
-    autocorr_history = np.empty(max_iterations // convergence_check_interval)
-    autocorr_index = 0
-    old_tau: float | NDArray = np.inf
+        # Track autocorrelation time history
+        autocorr_history = np.empty(max_iterations // convergence_check_interval)
+        autocorr_index = 0
+        old_tau: float | NDArray = np.inf
 
     # Choose pool type - MPIPool doesn't support initializer argument
     if config.USE_MPI:
