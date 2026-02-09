@@ -65,7 +65,7 @@ def init_salt2mu_realdata(
             - alphaerr: Uncertainty on alpha
             - maxprob: Maximum probability ratio
     """
-    index = ""
+    index = "MASTER"
     directory = "realdata_files"
 
     if debug:
@@ -76,7 +76,7 @@ def init_salt2mu_realdata(
     logger.debug(f"Create file: {subprocess_log_data.absolute()}")
     subprocess_log_data.touch()
 
-    realdata_out = outdir / f"{directory}/SUBPROCESS_REAL_DATA_OUT.DAT"
+    realdata_out = outdir / f"{directory}/SUBPROCESS_REALDATA_OUT.DAT"
     logger.debug(f"Create file: {realdata_out.absolute()}")
     realdata_out.touch()
 
@@ -89,7 +89,7 @@ def init_salt2mu_realdata(
 
     real_data = SALT2mu(
         cmd,
-        outdir / f"{directory}/NOTHING.DAT",
+        outdir / f"{directory}/REALDATA.DAT",
         realdata_out,
         subprocess_log_data,
         is_realdata=True,

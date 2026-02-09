@@ -98,7 +98,6 @@ Running `dust2dusty` creates the following output tree (default `./dust2dust_out
 │   ├── worker_salt2mu_0.log          # SALT2mu subprocess I/O for worker 0
 │   ├── worker_salt2mu_1.log          # SALT2mu subprocess I/O for worker 1
 │   └── worker_salt2mu_N.log          # SALT2mu subprocess I/O for worker N
-├── figures/                         # Diagnostic plots
 ├── realdata_files/                  # Real data SALT2mu outputs
 └── worker_files/                    # Per-worker SALT2mu subprocess files
     ├── {rank}_SUBPROCESS_SIM_OUT.DAT

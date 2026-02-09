@@ -12,7 +12,7 @@ Key Features:
 
 The SALT2mu class maintains bidirectional communication with the SALT2mu.exe
 subprocess through files:
-    - mapsout: Python writes PDF functions here (input to SALT2mu)
+    - crosstalk_file: Python writes PDF functions here (input to SALT2mu)
     - SALT2muout: SALT2mu writes fit results here (output from SALT2mu)
     - Process stdin/stdout: Used for iteration control
 
@@ -61,7 +61,7 @@ class SALT2mu:
         iter: Current iteration number (starts at -1).
         debug: Debug mode flag.
         ready_enditer: Expected text indicating subprocess ready for next iteration.
-        crosstalkfile: File handle for writing PDFs (mapsout).
+        crosstalkfile: File handle for writing PDFs (crosstalk_file).
         SALT2muoutputs: File handle for reading results (SALT2muout).
         command: Command string used to launch SALT2mu.exe.
         process: Subprocess object (if is_realdata=False).
@@ -71,7 +71,7 @@ class SALT2mu:
     def __init__(
         self,
         command: str,
-        mapsout: Path,
+        crosstalk_file: Path,
         salt2mu_out: Path,
         log_out: Path,
         is_realdata: bool = False,
@@ -83,7 +83,7 @@ class SALT2mu:
         Args:
             command: Command string for SALT2mu.exe with %s placeholders for files.
                 Format: "SALT2mu.exe input.file SUBPROCESS_FILES=%s,%s,%s ...".
-            mapsout: Path for PDF crosstalk file (Python writes, SALT2mu reads).
+            crosstalk_file: Path for PDF crosstalk file (Python writes, SALT2mu reads).
             salt2mu_out: Path for results file (SALT2mu writes, Python reads).
             log: Path for subprocess log file.
             is_realdata: If True, run synchronously and return immediately.
@@ -93,10 +93,10 @@ class SALT2mu:
             - If is_realdata=True: Runs SALT2mu via subprocess.run and calls getData()
             - If is_realdata=False: Launches SALT2mu.exe subprocess
         """
-        # Get walker ID from mapsout filename for walker-specific logging
-        walker_id = mapsout.name.split("_")[0]
-        # Derive log directory from mapsout path (outdir/worker_files -> outdir/logs)
-        log_dir = str(mapsout.parent.parent / "logs")
+        # Get walker ID from crosstalk_file filename for walker-specific logging
+        walker_id = crosstalk_file.name.split("_")[0]
+        # Derive log directory from crosstalk_file path (outdir/worker_files -> outdir/logs)
+        log_dir = str(crosstalk_file.parent.parent / "logs")
 
         if is_realdata:
             self.logger = logger
@@ -110,11 +110,11 @@ class SALT2mu:
         self.ready_enditer: str = "Enter expected ITERATION number"
         self.done: str = "Graceful Program Exit. Bye."
         self.initready: str = "Finished SUBPROCESS_INIT"
-        self.crosstalkfile = open(mapsout, "w")
+        self.crosstalkfile = open(crosstalk_file, "w")
         self.SALT2muoutputs = open(salt2mu_out)
 
         self.command: str = command % (
-            mapsout.absolute(),
+            crosstalk_file.absolute(),
             salt2mu_out.absolute(),
             log_out.absolute(),
         )
@@ -122,7 +122,7 @@ class SALT2mu:
         self.logger.info("Init SALT2mu instance. ")
         self.logger.info("## ================================== ##")
         self.logger.info(f"Command: {self.command}")
-        self.logger.info(f"mapsout: {mapsout}")
+        self.logger.info(f"crosstalk_file: {crosstalk_file}")
         self.logger.debug("DEBUG MODE ON")
 
         self.logger.info("Command being run: " + self.command)
@@ -138,7 +138,7 @@ class SALT2mu:
             with (
                 nullcontext()
                 if self.debug
-                else open(log_out.parent / f"{walker_id}_PROCESSLOG.log", "w")
+                else open(log_out.parent / "REALDATA_PROCESSLOG.log", "w")
             ) as stdout:
                 subprocess.run(self.command, shell=True, stdout=stdout)
             self.getData()
