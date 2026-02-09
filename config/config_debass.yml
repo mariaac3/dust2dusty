@@ -17,10 +17,7 @@
 DATA_INPUT: /project2/rkessler/SURVEYS/DEBASS/USERS/mariaace/DR1/parent_pops/SALT2mu_DATA.input
 SIM_INPUT:  /project2/rkessler/SURVEYS/DEBASS/USERS/mariaace/DR1/parent_pops/SALT2mu_SIM.input
 OUTDIR: /project2/rkessler/SURVEYS/DEBASS/USERS/mariaace/DR1/d2d_upgrades/DEBASS_OUTPUTS/
-CHAINS: ~
 SIMREF_FILE: /scratch/midway2/rkessler/PIPPIN_OUTPUT/MA_DEBASS_DR1/1_SIM/D2D_SIM/PIP_MA_DEBASS_DR1_D2D_SIM.input
-WALKFACTOR: 2
-CONTINUITY: False
 
 ### INPUT OPTIONS ###
 INP_PARAMS: ['c', 'x1', 'RV', 'EBV', 'beta'] #The parameters to be fitted.
@@ -34,7 +31,6 @@ PARAMS: [-0.08827198, 0.05043889, 0.0, 1.0, 1.0, 0.2, 1.2, 1.2, 2.95953092, 1.19
 SPLITARR: {'HOST_LOGMASS':'np.arange(5,15,1)', 'SIM_ZCMB':'np.linspace(-2.4,2.6,3)'}
 
 ### DEFAULTS ###
-# These should not be messed with, but are included by default in the input file.
 # Right now the dictionary entries are made by hand, and need to match any split options.
 #PARAMETER_INITIALIZATION: Contains walker and boundary information. Walkers are initialised in Gaussian spread
 #First Entry is the mean starting location for the walker

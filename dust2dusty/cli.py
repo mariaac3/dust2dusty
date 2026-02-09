@@ -168,7 +168,6 @@ class Config:
             sim_input=config_dict["SIM_INPUT"],
             simref_file=config_dict["SIMREF_FILE"],
             outdir=config_dict.get("OUTDIR", ""),
-            chains=config_dict.get("CHAINS"),
             # Parameter configuration
             inp_params=config_dict["INP_PARAMS"],
             params=config_dict.get("PARAMS", []),
