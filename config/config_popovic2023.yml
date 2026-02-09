@@ -16,7 +16,7 @@
 
 DATA_INPUT: /project2/rkessler/SURVEYS/DES/USERS/djbrout/dustdriver/SALT2mu_ALL_DATA.input
 SIM_INPUT:  /project2/rkessler/SURVEYS/DES/USERS/djbrout/dustdriver/SALT2mu_ALL_BOUND.input
-OUTDIR: ~
+OUTDIR: /project2/rkessler/SURVEYS/DEBASS/USERS/mariaace/DR1/d2d_upgrades/DES_OUTPUTS/
 CHAINS: ~
 SIMREF_FILE: /scratch/midway2/rkessler/PIPPIN_OUTPUT/HIGH-REDSHIFT-BOUND/1_SIM/SIMDES_4D_BS20/PIP_HIGH-REDSHIFT-BOUND_SIMDES_4D_BS20.input
 WALKFACTOR: 2
