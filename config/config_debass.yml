@@ -24,7 +24,7 @@ INP_PARAMS: ['c', 'x1', 'RV', 'EBV', 'beta'] #The parameters to be fitted.
 PARAMSHAPESDICT: {'c': 'Gaussian', 'x1': 'Skewed Gaussian', 'RV':'Gaussian', 'EBV':'Exponential', 'beta':'Gaussian'} #The shapes of these parameters.
 SPLITPARAM: HOST_LOGMASS
 TRUEPARAM: HOST_LOGMASS
-SPLITDICT: {'x1': {'HOST_LOGMASS': 10}, 'RV': {'HOST_LOGMASS': 10 }, 'EBV': {'SIM_ZCMB': 0.1, 'HOST_LOGMASS': 10}} #A nested dictionary informing any splits.
+SPLITDICT: {'RV': {'HOST_LOGMASS': 10 }, 'EBV': {'HOST_LOGMASS': 10}} #A nested dictionary informing any splits.
 PARAMS: [-0.08827198, 0.05043889, 0.0, 1.0, 1.0, 0.2, 1.2, 1.2, 2.95953092, 1.19440396, 1.99422843, 0.72706128, 0.09966235, 0.10151627, 0.12812847, 0.12945593, 1.7478346, 0.27062389] #This feature is only used in conjunction with the "SINGLE" command line argument. Order: c(2), x1(6), RV(4), EBV(4), beta(2)
 
 # SPLITARR is the array to generate over for multi dimensional GENPDFS.
@@ -47,8 +47,8 @@ PARAMETER_INITIALIZATION:  {'c_mu':[-0.077, 0.01, False, [-0.3,-0.04]],
              'RV_mu_HOST_LOGMASS_high':[2.138, 0.25, True, [0.8, 4]],
              'RV_std_HOST_LOGMASS_low':[1.481, 0.42, True, [0.25,4]],
              'RV_std_HOST_LOGMASS_high':[1.06, 0.43, True, [0.25,4]],
-             'EBV_Tau_SIM_ZCMB_low_HOST_LOGMASS_low':[0.09, 0.02, True, [0.05, 0.2]],
-             'EBV_Tau_SIM_ZCMB_low_HOST_LOGMASS_high':[0.11, 0.02, True, [0.05, 0.2]],
+             'EBV_Tau_HOST_LOGMASS_low':[0.09, 0.02, True, [0.05, 0.2]],
+             'EBV_Tau_HOST_LOGMASS_high':[0.11, 0.02, True, [0.05, 0.2]],
              'beta_mu':[2.064, 0.31, False, [1,3]],
              'beta_std':[0.308, .08, True, [0, 1]],
 }
