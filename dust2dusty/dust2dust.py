@@ -452,9 +452,18 @@ def compute_and_sum_loglikelihoods(
             poisson_dict[k + "_hist"] = poisson_err
 
     for k in ["low", "high"]:
+        mask = inparr["nevt_" + k][0] > 0
+
         # MURES
         data_mures, sim_mures = inparr["mures_" + k]
         poisson_err_mures = inparr["rms_" + k][0] / np.sqrt(inparr["nevt_" + k][0])
+
+        data_mures, sim_mures, poisson_err_mures = (
+            data_mures[mask],
+            sim_mures[mask],
+            poisson_err_mures[mask],
+        )
+
         ll_dict["mures_" + k] = -0.5 * np.sum((data_mures - sim_mures) ** 2 / poisson_err_mures**2)
         datacount_dict["mures_" + k] = data_mures
         simcount_dict["mures_" + k] = sim_mures
@@ -463,6 +472,13 @@ def compute_and_sum_loglikelihoods(
         # RMS
         data_rms, sim_rms = inparr["rms_" + k]
         poisson_err_rms = data_rms / np.sqrt(2 * inparr["nevt_" + k][0])
+
+        data_rms, sim_rms, poisson_err_rms = (
+            data_rms[mask],
+            sim_rms[mask],
+            poisson_err_rms[mask],
+        )
+
         ll_dict["rms_" + k] = (
             -0.5 * np.sum((data_rms - sim_rms) ** 2 / poisson_err_rms**2) * rms_weight
         )
