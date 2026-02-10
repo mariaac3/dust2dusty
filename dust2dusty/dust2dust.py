@@ -39,7 +39,13 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from dust2dusty.utils import cmd_exe, generate_split_array, normhisttodata, pconv, set_numpy_threads
+from dust2dusty.utils import (
+    cmd_exe,
+    generate_split_array,
+    norm_hist_to_data,
+    pconv,
+    set_numpy_threads,
+)
 
 # Call BEFORE importing numpy
 set_numpy_threads(4)
@@ -186,7 +192,6 @@ def array_conv(
 
 def dffixer(
     df: pd.DataFrame,
-    return_type: str,
 ) -> tuple[NDArray, NDArray] | dict[str, NDArray] | str:
     """
     Extract binned statistics from SALT2mu output dataframe.
@@ -199,61 +204,41 @@ def dffixer(
         df: pandas DataFrame from SALT2mu output containing binned statistics.
             Expected columns: ibin_c, ibin_x1, ibin_{splitparam}, NEVT,
             MURES_SUM, STD_ROBUST.
-        return_type: Return type string:
-            - 'HIST': Return only histogram counts
-            - 'ANALYSIS': Return full statistics dictionary
 
     Returns:
-        If return_type == 'HIST':
-            Tuple of (color_hist, x1_hist) - numpy arrays of histogram counts.
-        If return_type == 'ANALYSIS':
             Dictionary with keys: 'color_hist', 'x1_hist', 'mures_high',
             'mures_low', 'rms_high', 'rms_low', 'nevt_high', 'nevt_low'.
-        Otherwise:
-            String 'No output'.
     """
-    cpops: list[float] = []
-    x1pops: list[float] = []
+    low_mask = df[f"ibin_{_CONFIG.splitparam}"] == 0
 
-    dflow = df.loc[df[f"ibin_{_CONFIG.splitparam}"] == 0]
-    dfhigh = df.loc[df[f"ibin_{_CONFIG.splitparam}"] == 1]
+    dflow = df[low_mask]
+    dfhigh = df[~low_mask]
 
-    lowNEVT = dflow.NEVT.values
-    highNEVT = dfhigh.NEVT.values
-    lowrespops = dflow.MURES_SUM.values
-    highrespops = dfhigh.MURES_SUM.values
+    lowNEVT = dflow["NEVT"].values
+    highNEVT = dfhigh["NEVT"].values
+    lowrespops = dflow["MURES_SUM"].values
+    highrespops = dfhigh["MURES_SUM"].values
 
-    # Color histogram
-    for q in np.unique(df.ibin_c.values):
-        cpops.append(np.sum(df.loc[df.ibin_c == q].NEVT))
-    cpops_arr = np.array(cpops)
-
-    # x1 (stretch) histogram
-    if "ibin_x1" in df.columns:
-        for q in np.unique(df.ibin_x1.values):
-            x1pops.append(np.sum(df.loc[df.ibin_x1 == q].NEVT))
-        x1pops_arr = np.array(x1pops)
-    else:
-        x1pops_arr = np.array([])
+    par_pops = defaultdict(np.ndarray)
+    for k in ["c", "x1"]:
+        if k in df.columns:
+            k_values = df["ibin_" + k].unique()
+            par_pops[k + "_hist"] = np.zeros(len(k_values), dtype=int)
+            for i, kv in enumerate(k_values):
+                par_pops[+"_hist"][i] = df["NEVT"][df["ibin_" + k] == kv].sum()
 
     lowRMS = dflow.STD_ROBUST.values
     highRMS = dfhigh.STD_ROBUST.values
 
-    if return_type == "HIST":
-        return cpops_arr, x1pops_arr
-    elif return_type == "ANALYSIS":
-        return {
-            "color_hist": cpops_arr,
-            "x1_hist": x1pops_arr,
-            "mures_high": highrespops / dfhigh.NEVT.values,
-            "mures_low": lowrespops / dflow.NEVT.values,
-            "rms_high": highRMS,
-            "rms_low": lowRMS,
-            "nevt_high": highNEVT,
-            "nevt_low": lowNEVT,
-        }
-    else:
-        return "No output"
+    return {
+        "mures_high": highrespops / dfhigh.NEVT.values,
+        "mures_low": lowrespops / dflow.NEVT.values,
+        "rms_high": highRMS,
+        "rms_low": lowRMS,
+        "nevt_high": highNEVT,
+        "nevt_low": lowNEVT,
+        **par_pops,
+    }
 
 
 # =============================================================================
@@ -456,68 +441,34 @@ def compute_and_sum_loglikelihoods(
     )
 
     # ========== Observable distributions ==========
-    nevt_high = inparr["nevt_high"][0]
-    nevt_low = inparr["nevt_low"][0]
 
-    # Color histogram
-    data_color, sim_color = inparr["color_hist"]
-    if len(data_color) > 0 and len(sim_color) > 0:
-        datacount_color, simcount_color, poisson_color, _ = normhisttodata(data_color, sim_color)
-        ll_dict["color_hist"] = -0.5 * np.sum(
-            (datacount_color - simcount_color) ** 2 / poisson_color**2
+    # Salt parameters
+    for k in ["c", "x1"]:
+        if k + "_hist" in inparr:
+            datacount, simcount, poisson_err, _ = norm_hist_to_data(*inparr[k + "_hist"])
+            ll_dict[k + "_hist"] = -0.5 * np.sum((datacount - simcount) ** 2 / poisson_err**2)
+            datacount_dict[k + "_hist"] = datacount
+            simcount_dict[k + "_hist"] = simcount
+            poisson_dict[k + "_hist"] = poisson_err
+
+    for k in ["low", "high"]:
+        # MURES
+        data_mures, sim_mures = inparr["mures_" + k]
+        poisson_err_mures = inparr["rms_" + k][0] / np.sqrt(inparr["nevt_" + k][0])
+        ll_dict["mures_" + k] = -0.5 * np.sum((data_mures - sim_mures) ** 2 / poisson_err_mures**2)
+        datacount_dict["mures_" + k] = data_mures
+        simcount_dict["mures_" + k] = sim_mures
+        poisson_dict["mures_" + k] = poisson_err_mures
+
+        # RMS
+        data_rms, sim_rms = inparr["rms_" + k]
+        poisson_err_rms = data_rms / np.sqrt(2 * inparr["nevt_" + k][0])
+        ll_dict["rms_" + k] = (
+            -0.5 * np.sum((data_rms - sim_rms) ** 2 / poisson_err_rms**2) * rms_weight
         )
-        datacount_dict["color_hist"] = datacount_color
-        simcount_dict["color_hist"] = simcount_color
-        poisson_dict["color_hist"] = poisson_color
-
-    # X1 (stretch) histogram
-    data_x1, sim_x1 = inparr["x1_hist"]
-    if len(data_x1) > 0 and len(sim_x1) > 0:
-        datacount_x1, simcount_x1, poisson_x1, _ = normhisttodata(data_x1, sim_x1)
-        ll_dict["x1_hist"] = -0.5 * np.sum((datacount_x1 - simcount_x1) ** 2 / poisson_x1**2)
-        datacount_dict["x1_hist"] = datacount_x1
-        simcount_dict["x1_hist"] = simcount_x1
-        poisson_dict["x1_hist"] = poisson_x1
-
-    # High-mass MURES
-    data_mures_high, sim_mures_high = inparr["mures_high"]
-    poisson_mures_high = inparr["rms_high"][0] / np.sqrt(nevt_high)
-    ll_dict["mures_high"] = -0.5 * np.sum(
-        (data_mures_high - sim_mures_high) ** 2 / poisson_mures_high**2
-    )
-    datacount_dict["mures_high"] = data_mures_high
-    simcount_dict["mures_high"] = sim_mures_high
-    poisson_dict["mures_high"] = poisson_mures_high
-
-    # Low-mass MURES
-    data_mures_low, sim_mures_low = inparr["mures_low"]
-    poisson_mures_low = inparr["rms_low"][0] / np.sqrt(nevt_low)
-    ll_dict["mures_low"] = -0.5 * np.sum(
-        (data_mures_low - sim_mures_low) ** 2 / poisson_mures_low**2
-    )
-    datacount_dict["mures_low"] = data_mures_low
-    simcount_dict["mures_low"] = sim_mures_low
-    poisson_dict["mures_low"] = poisson_mures_low
-
-    # High-mass RMS
-    data_rms_high, sim_rms_high = inparr["rms_high"]
-    poisson_rms_high = data_rms_high / np.sqrt(2 * nevt_high)
-    ll_dict["rms_high"] = (
-        -0.5 * np.sum((data_rms_high - sim_rms_high) ** 2 / poisson_rms_high**2) * rms_weight
-    )
-    datacount_dict["rms_high"] = data_rms_high
-    simcount_dict["rms_high"] = sim_rms_high
-    poisson_dict["rms_high"] = poisson_rms_high
-
-    # Low-mass RMS
-    data_rms_low, sim_rms_low = inparr["rms_low"]
-    poisson_rms_low = data_rms_low / np.sqrt(2 * nevt_low)
-    ll_dict["rms_low"] = (
-        -0.5 * np.sum((data_rms_low - sim_rms_low) ** 2 / poisson_rms_low**2) * rms_weight
-    )
-    datacount_dict["rms_low"] = data_rms_low
-    simcount_dict["rms_low"] = sim_rms_low
-    poisson_dict["rms_low"] = poisson_rms_low
+        datacount_dict["rms_" + k] = data_rms
+        simcount_dict["rms_" + k] = sim_rms
+        poisson_dict["rms_" + k] = poisson_err_rms
 
     # Check for invalid values
     invalid_components = []
@@ -587,13 +538,13 @@ def log_likelihood(
         return -np.inf
 
     sim_bindf = _WORKER_SALT2MU_CONNECTION.salt2mu_results["bindf"].dropna()
-    sim_vals = dffixer(sim_bindf, "ANALYSIS")
+    sim_vals = dffixer(sim_bindf)
 
     realdata_bindf = _WORKER_REALDATA_SALT2MU_RESULTS["bindf"].dropna()
-    realdata_vals = dffixer(realdata_bindf, "ANALYSIS")
+    realdata_vals = dffixer(realdata_bindf)
 
     # Build dictionary pairing data and simulation values
-    inparr = {key: [realdata_vals[key], sim_vals[key]] for key in realdata_vals.keys()}
+    inparr = {key: (realdata_vals[key], sim_vals[key]) for key in realdata_vals.keys()}
 
     out_result = compute_and_sum_loglikelihoods(inparr, returnall=returnall)
 

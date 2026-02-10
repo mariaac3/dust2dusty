@@ -229,13 +229,17 @@ def input_cleaner(
     pos = np.abs(0.1 * np.random.randn(nwalkers, len(plist)))
     for entry in range(len(plist)):
         newpos_param = parameter_initialization[plist[entry]]
-        pos[:, entry] = np.random.normal(newpos_param["start"], newpos_param["stdev"], len(pos[:, entry]))
+        pos[:, entry] = np.random.normal(
+            newpos_param["start"], newpos_param["stdev"], len(pos[:, entry])
+        )
         if newpos_param["require_positive"]:
             pos[:, entry] = np.abs(pos[:, entry])
         while any(ele < newpos_param["bounds"][0] for ele in pos[:, entry]) or any(
             ele > newpos_param["bounds"][1] for ele in pos[:, entry]
         ):
-            pos[:, entry] = np.random.normal(newpos_param["start"], newpos_param["stdev"], len(pos[:, entry]))
+            pos[:, entry] = np.random.normal(
+                newpos_param["start"], newpos_param["stdev"], len(pos[:, entry])
+            )
             if newpos_param["require_positive"]:
                 pos[:, entry] = np.abs(pos[:, entry])
     return pos, nwalkers, len(plist)
@@ -282,9 +286,9 @@ def subprocess_to_snana(outdir: str, snana_mapping: dict[str, str]) -> str:
     return "Done"
 
 
-def normhisttodata(
-    datacount: NDArray[np.float64] | list[float],
-    simcount: NDArray[np.float64] | list[float],
+def norm_hist_to_data(
+    datacount: NDArray[np.float64],
+    simcount: NDArray[np.float64],
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_]]:
     """
     Normalize simulation histogram to match total counts in data.
@@ -302,21 +306,18 @@ def normhisttodata(
         Tuple of (datacount_masked, simcount_normalized, poisson_errors, mask):
             - datacount_masked: Data counts with zero bins removed
             - simcount_normalized: Sim counts scaled by (datatot/simtot), zeros removed
-            - poisson_errors: sqrt(datacount) per bin, minimum value 1
+            - poisson_err: sqrt(datacount) per bin, minimum value 1
             - mask: Boolean array indicating non-zero bins (True = kept)
     """
-    datacount = np.array(datacount)
-    simcount = np.array(simcount)
     datatot = np.sum(datacount)
     simtot = np.sum(simcount)
-    simcount = simcount * datatot / simtot
 
-    ww = (datacount != 0) | (simcount != 0)
+    norm = datatot / simtot
 
-    poisson = np.sqrt(datacount)
-    poisson[datacount == 0] = 1
-    poisson[~np.isfinite(poisson)] = 1
-    return datacount[ww], simcount[ww], poisson[ww], ww
+    ww = datacount != 0
+
+    poisson_err = np.sqrt(datacount + simcount * norm**2)
+    return datacount[ww], simcount[ww] * norm, poisson_err[ww]
 
 
 def write_chain_to_text(
