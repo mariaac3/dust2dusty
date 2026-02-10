@@ -350,11 +350,11 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         optmask = 1
 
     outdir = Path(_CONFIG.outdir)
-    sim_data_out = outdir / f"{directory}/{_WORKER_INDEX}_SUBPROCESS_SIM_OUT.DAT"
-    sim_data_out.touch()
+    sim_salt2mu_out = outdir / f"{directory}/{_WORKER_INDEX}_SUBPROCESS_SIM_OUT.DAT"
+    sim_salt2mu_out.touch()
 
-    maps_out = outdir / f"{directory}/{_WORKER_INDEX}_PYTHONCROSSTALK_OUT.DAT"
-    maps_out.touch()
+    crosstalk_pdf_file = outdir / f"{directory}/{_WORKER_INDEX}_PYTHONCROSSTALK_OUT.DAT"
+    crosstalk_pdf_file.touch()
 
     subprocess_log_sim = outdir / f"{directory}/{_WORKER_INDEX}_SUBPROCESS_LOG_SIM.STDOUT"
     subprocess_log_sim.touch()
@@ -373,7 +373,9 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         f"debug_flag=930"
     )
 
-    connection = SALT2mu(cmd, maps_out, sim_data_out, subprocess_log_sim, debug=_WORKER_DEBUGFLAG)
+    connection = SALT2mu(
+        cmd, crosstalk_pdf_file, sim_salt2mu_out, subprocess_log_sim, debug=_WORKER_DEBUGFLAG
+    )
 
     return connection
 
@@ -584,14 +586,14 @@ def log_likelihood(
         )
         return -np.inf
 
-    bindf = _WORKER_SALT2MU_CONNECTION.salt2mu_results["bindf"].dropna()
-    sim_vals = dffixer(bindf, "ANALYSIS")
+    sim_bindf = _WORKER_SALT2MU_CONNECTION.salt2mu_results["bindf"].dropna()
+    sim_vals = dffixer(sim_bindf, "ANALYSIS")
 
-    realbindf = _WORKER_REALDATA_SALT2MU_RESULTS["bindf"].dropna()
-    real_vals = dffixer(realbindf, "ANALYSIS")
+    realdata_bindf = _WORKER_REALDATA_SALT2MU_RESULTS["bindf"].dropna()
+    realdata_vals = dffixer(realdata_bindf, "ANALYSIS")
 
     # Build dictionary pairing data and simulation values
-    inparr = {key: [real_vals[key], sim_vals[key]] for key in real_vals.keys()}
+    inparr = {key: [realdata_vals[key], sim_vals[key]] for key in realdata_vals.keys()}
 
     out_result = compute_and_sum_loglikelihoods(inparr, returnall=returnall)
 

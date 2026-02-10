@@ -72,13 +72,13 @@ def init_salt2mu_realdata(
         index = "DEBUG"
     outdir = Path(config.outdir)
 
-    subprocess_log_data = outdir / f"{directory}/{index}_SUBPROCESS_LOG_DATA.STDOUT"
+    subprocess_log_data = outdir / f"{directory}/{index}_SALT2MU_SUBPROCESS_REALDATA_LOG.STDOUT"
     logger.debug(f"Create file: {subprocess_log_data.absolute()}")
     subprocess_log_data.touch()
 
-    realdata_out = outdir / f"{directory}/SUBPROCESS_REALDATA_OUT.DAT"
-    logger.debug(f"Create file: {realdata_out.absolute()}")
-    realdata_out.touch()
+    realdata_salt2mu_out = outdir / f"{directory}/REALDATA_SALT2MU_OUT.DAT"
+    logger.debug(f"Create file: {realdata_salt2mu_out.absolute()}")
+    realdata_salt2mu_out.touch()
 
     # Generate output table specification (color bins x split parameter bins)
     arg_outtable = f"'c(6,-0.2:0.25)*{config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
@@ -89,8 +89,8 @@ def init_salt2mu_realdata(
 
     real_data = SALT2mu(
         cmd,
-        outdir / f"{directory}/REALDATA.DAT",
-        realdata_out,
+        outdir / f"{directory}/REALDATA_CROSSTALK_EMPTY.DAT",
+        realdata_salt2mu_out,
         subprocess_log_data,
         is_realdata=True,
         debug=debug,

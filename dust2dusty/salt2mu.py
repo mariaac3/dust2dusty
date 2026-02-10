@@ -12,7 +12,7 @@ Key Features:
 
 The SALT2mu class maintains bidirectional communication with the SALT2mu.exe
 subprocess through files:
-    - crosstalk_file: Python writes PDF functions here (input to SALT2mu)
+    - pdf_crosstalk_file: Python writes PDF functions here (input to SALT2mu)
     - SALT2muout: SALT2mu writes fit results here (output from SALT2mu)
     - Process stdin/stdout: Used for iteration control
 
@@ -61,7 +61,7 @@ class SALT2mu:
         iter: Current iteration number (starts at -1).
         debug: Debug mode flag.
         ready_enditer: Expected text indicating subprocess ready for next iteration.
-        crosstalkfile: File handle for writing PDFs (crosstalk_file).
+        pdf_crosstalk_file: File handle for writing PDFs (pdf_crosstalk_file).
         SALT2muoutputs: File handle for reading results (SALT2muout).
         command: Command string used to launch SALT2mu.exe.
         process: Subprocess object (if is_realdata=False).
@@ -71,7 +71,7 @@ class SALT2mu:
     def __init__(
         self,
         command: str,
-        crosstalk_file: Path,
+        pdf_crosstalk_file: Path,
         salt2mu_out: Path,
         log_out: Path,
         is_realdata: bool = False,
@@ -83,7 +83,7 @@ class SALT2mu:
         Args:
             command: Command string for SALT2mu.exe with %s placeholders for files.
                 Format: "SALT2mu.exe input.file SUBPROCESS_FILES=%s,%s,%s ...".
-            crosstalk_file: Path for PDF crosstalk file (Python writes, SALT2mu reads).
+            pdf_crosstalk_file: Path for PDF crosstalk file (Python writes, SALT2mu reads).
             salt2mu_out: Path for results file (SALT2mu writes, Python reads).
             log: Path for subprocess log file.
             is_realdata: If True, run synchronously and return immediately.
@@ -93,10 +93,10 @@ class SALT2mu:
             - If is_realdata=True: Runs SALT2mu via subprocess.run and calls getData()
             - If is_realdata=False: Launches SALT2mu.exe subprocess
         """
-        # Get walker ID from crosstalk_file filename for walker-specific logging
-        walker_id = crosstalk_file.name.split("_")[0]
+        # Get walker ID from pdf_crosstalk_file filename for walker-specific logging
+        walker_id = pdf_crosstalk_file.name.split("_")[0]
         # Derive log directory from crosstalk_file path (outdir/worker_files -> outdir/logs)
-        log_dir = str(crosstalk_file.parent.parent / "logs")
+        log_dir = str(pdf_crosstalk_file.parent.parent / "logs")
 
         if is_realdata:
             self.logger = logger
@@ -110,11 +110,11 @@ class SALT2mu:
         self.ready_enditer: str = "Enter expected ITERATION number"
         self.done: str = "Graceful Program Exit. Bye."
         self.initready: str = "Finished SUBPROCESS_INIT"
-        self.crosstalkfile = open(crosstalk_file, "w")
+        self.pdf_crosstalk_file = open(pdf_crosstalk_file, "w")
         self.SALT2muoutputs = open(salt2mu_out)
 
         self.command: str = command % (
-            crosstalk_file.absolute(),
+            pdf_crosstalk_file.absolute(),
             salt2mu_out.absolute(),
             log_out.absolute(),
         )
@@ -122,7 +122,7 @@ class SALT2mu:
         self.logger.info("Init SALT2mu instance. ")
         self.logger.info("## ================================== ##")
         self.logger.info(f"Command: {self.command}")
-        self.logger.info(f"crosstalk_file: {crosstalk_file}")
+        self.logger.info(f"pdf_crosstalk_file: {pdf_crosstalk_file}")
         self.logger.debug("DEBUG MODE ON")
 
         self.logger.info("Command being run: " + self.command)
@@ -270,24 +270,34 @@ class SALT2mu:
                 - maxprob: Maximum probability ratio (for boundary checking)
                 - sigint, siginterr: Intrinsic scatter and error
                 - bindf: pandas DataFrame with binned statistics
-                - headerinfo: Tuple of (column_names, start_row)
         """
         self.SALT2muoutputs.seek(0)
-        text = self.SALT2muoutputs.read()
-        self.salt2mu_results["alpha"] = float(text.split("alpha0")[1].split()[1])
-        self.salt2mu_results["alphaerr"] = float(text.split("alpha0")[1].split()[3])
-        self.salt2mu_results["beta"] = float(text.split("beta0")[1].split()[1])
-        self.salt2mu_results["betaerr"] = float(text.split("beta0")[1].split()[3])
-        self.salt2mu_results["maxprob"] = float(text.split("MAXPROB_RATIO")[1].split()[1])
-        self.salt2mu_results["headerinfo"] = self.NAndR(StringIO(text))
-        self.salt2mu_results["sigint"] = float(text.split("sigint")[1].split()[1])
+        lines = self.SALT2muoutputs.readlines()
+        data_lines = []
+        for l in lines:
+            if "+-" in l:
+                parts = l.split("=")[1].split()
+                if "alpha" in l:
+                    k = "alpha"
+                elif "beta" in l:
+                    k = "beta"
+                elif "sigint" in l:
+                    k = "sigint"
+                self.salt2mu_results[k] = float(parts[0])
+                self.salt2mu_results[k + "err"] = float(parts[2])
+            elif "MAXPROB_RATIO" in l:
+                self.salt2mu_results["maxprob"] = float(l.split()[4])
+            elif l.startswith("VARNAMES"):
+                names = l.split()[1:]
+            elif l.startswith("ROW:"):
+                data_lines.append(l.replace("ROW:", "").strip())
+            else:
+                pass
         self.salt2mu_results["bindf"] = pd.read_csv(
-            StringIO(text),
+            StringIO("\n".join(data_lines)),
+            names=names,
+            sep=r"\s+",
             header=None,
-            skiprows=self.salt2mu_results["headerinfo"][1],
-            names=self.salt2mu_results["headerinfo"][0],
-            delim_whitespace=True,
-            comment="#",
         )
         self.salt2mu_results["siginterr"] = 0.0036  # DEFAULT VALUE
         return True
@@ -359,17 +369,17 @@ class SALT2mu:
 
     def writeheader(self, names: list[str]) -> None:
         """
-        Write VARNAMES header line to crosstalk file.
+        Write VARNAMES header line to pdf crosstalk file.
 
         Deprecated: Use writegenericheader instead.
 
         Args:
             names: List of variable names.
         """
-        self.crosstalkfile.write("VARNAMES:")
+        self.pdf_crosstalk_file.write("VARNAMES:")
         for name in names:
-            self.crosstalkfile.write(" " + name)
-        self.crosstalkfile.write(" PROB\n")
+            self.pdf_crosstalk_file.write(" " + name)
+        self.pdf_crosstalk_file.write(" PROB\n")
 
     def writegenericheader(self, inp: str, varnames: list[str]) -> None:
         """
@@ -383,10 +393,10 @@ class SALT2mu:
         Side Effects:
             Writes "VARNAMES: inp varname1 varname2 ... PROB\\n" to crosstalk file.
         """
-        self.crosstalkfile.write(f"VARNAMES: {inp}")
+        self.pdf_crosstalk_file.write(f"VARNAMES: {inp}")
         for name in varnames:
-            self.crosstalkfile.write(" " + name)
-        self.crosstalkfile.write(" PROB \n")
+            self.pdf_crosstalk_file.write(" " + name)
+        self.pdf_crosstalk_file.write(" PROB \n")
 
     def write3Dprobs(
         self,
@@ -410,7 +420,7 @@ class SALT2mu:
         bigstr = ""
         for a, p in zip(arr, probs):
             bigstr += "PDF: %.3f %.2f %.2f %.3f\n" % (a, z, mass, p)
-        self.crosstalkfile.write(bigstr)
+        self.pdf_crosstalk_file.write(bigstr)
 
     def write2Dprobs(
         self, arr: NDArray[np.float64], mass: float, probs: NDArray[np.float64]
@@ -429,7 +439,7 @@ class SALT2mu:
         bigstr = ""
         for a, p in zip(arr, probs):
             bigstr += "PDF: %.3f %.2f %.3f\n" % (a, mass, p)
-        self.crosstalkfile.write(bigstr)
+        self.pdf_crosstalk_file.write(bigstr)
 
     def write1Dprobs(self, arr: NDArray[np.float64], probs: NDArray[np.float64]) -> None:
         """
@@ -446,7 +456,7 @@ class SALT2mu:
         for a, p in zip(arr, probs):
             bigstr += "PDF: %.3f %.3f\n" % (a, p)
         bigstr += "\n"
-        self.crosstalkfile.write(bigstr)
+        self.pdf_crosstalk_file.write(bigstr)
 
     def write_iterbegin(self) -> None:
         """
@@ -456,9 +466,9 @@ class SALT2mu:
             - Truncates crosstalk file to zero length
             - Writes "ITERATION_BEGIN: N" where N = self.iter
         """
-        self.crosstalkfile.truncate(0)
-        self.crosstalkfile.seek(0)
-        self.crosstalkfile.write("ITERATION_BEGIN: %d\n" % self.iter)
+        self.pdf_crosstalk_file.truncate(0)
+        self.pdf_crosstalk_file.seek(0)
+        self.pdf_crosstalk_file.write("ITERATION_BEGIN: %d\n" % self.iter)
 
     def write_iterend(self) -> None:
         """
@@ -468,8 +478,8 @@ class SALT2mu:
             - Writes "ITERATION_END: N" where N = self.iter
             - Flushes crosstalk file to ensure SALT2mu can read it
         """
-        self.crosstalkfile.write("ITERATION_END: %d\n" % self.iter)
-        self.crosstalkfile.flush()
+        self.pdf_crosstalk_file.write("ITERATION_END: %d\n" % self.iter)
+        self.pdf_crosstalk_file.flush()
 
     def write_SALT2(self, name: str, params: list[float]) -> None:
         """
@@ -487,17 +497,17 @@ class SALT2mu:
             GENRANGE is .1-.2 for alpha, .4-3 for beta.
         """
         for _ in range(3):
-            self.crosstalkfile.write("\n")
+            self.pdf_crosstalk_file.write("\n")
         mean = params[0]
         std = params[1]
-        self.crosstalkfile.write(f"GENPEAK_SIM_{name}: {mean} \n")
-        self.crosstalkfile.write(f"GENSIGMA_SIM_{name}: {std} {std} \n")
+        self.pdf_crosstalk_file.write(f"GENPEAK_SIM_{name}: {mean} \n")
+        self.pdf_crosstalk_file.write(f"GENSIGMA_SIM_{name}: {std} {std} \n")
         if name == "alpha":
-            self.crosstalkfile.write(f"GENRANGE_SIM_{name}: .1 .2 \n")
+            self.pdf_crosstalk_file.write(f"GENRANGE_SIM_{name}: .1 .2 \n")
         else:
-            self.crosstalkfile.write(f"GENRANGE_SIM_{name}: .4 3 \n")
+            self.pdf_crosstalk_file.write(f"GENRANGE_SIM_{name}: .4 3 \n")
         for _ in range(3):
-            self.crosstalkfile.write("\n")
+            self.pdf_crosstalk_file.write("\n")
 
     def write_1D_PDF(self, varname: str, params: list[float], arr: NDArray[np.float64]) -> None:
         """
@@ -520,7 +530,8 @@ class SALT2mu:
         arr, probs = self.get_1d_asym_gauss(mean, lhs, rhs, arr)
         self.write1Dprobs(arr, probs)
 
-    def NAndR(self, fp: StringIO) -> tuple[list[str], int]:
+    @staticmethod
+    def NAndR(fp: StringIO) -> tuple[list[str], int]:
         """
         Parse SALT2mu output to find variable names and data start row.
 
@@ -638,7 +649,7 @@ class SALT2mu:
                             if inp == "RV":
                                 probs[arrs < 0.4] = 0
                             self.write3Dprobs(arrs, sp1, sp2, probs)
-        self.crosstalkfile.write("\n")
+        self.pdf_crosstalk_file.write("\n")
         return None
 
     def shape_assigner(
