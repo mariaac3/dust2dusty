@@ -391,6 +391,27 @@ def _get_mpi_info() -> tuple[int, int]:
         return 0, 1
 
 
+def _install_mpi_excepthook() -> None:
+    """
+    Install a sys.excepthook that calls MPI Abort on unhandled exceptions.
+
+    Without this, a single crashing MPI process leaves the others hanging
+    forever (waiting for messages that never arrive), and SLURM never
+    kills the job.  MPI.COMM_WORLD.Abort terminates every process in the
+    communicator so the job fails immediately.
+    """
+    from mpi4py import MPI
+
+    _original_hook = sys.excepthook
+
+    def _mpi_excepthook(exc_type, exc_value, exc_tb):
+        _original_hook(exc_type, exc_value, exc_tb)
+        sys.stderr.flush()
+        MPI.COMM_WORLD.Abort(1)
+
+    sys.excepthook = _mpi_excepthook
+
+
 def main() -> int:
     """
     Main entry point for the dust2dusty command-line tool.
@@ -416,6 +437,11 @@ def main() -> int:
     # Check MPI status early - workers should not do heavy setup
     rank, size = _get_mpi_info()
     is_master = rank == 0
+
+    # Ensure any unhandled exception on *any* rank aborts the whole MPI job
+    # instead of leaving the other ranks hanging forever.
+    if size > 1:
+        _install_mpi_excepthook()
 
     if is_master:
         # Master process (rank 0) does full setup
