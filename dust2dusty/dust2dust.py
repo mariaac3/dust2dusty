@@ -525,22 +525,24 @@ def log_likelihood(
         If returnall=True: tuple of (ll_dict, datacount_dict, simcount_dict, poisson_dict).
         Returns -inf if MAXPROB > 1.001 (PDF hitting boundary).
     """
+
     theta_index_dic = thetaconverter(theta)
+    logger.debug(f"theta: {theta}, thetha_dic: {theta_index_dic}")
 
     # Run SALT2mu with these PDFs
     _WORKER_SALT2MU_CONNECTION.next_iter(theta, theta_index_dic, _CONFIG, last=last)
 
     if _WORKER_SALT2MU_CONNECTION.salt2mu_results["maxprob"] > 1.001:
-        logger.debug(
+        logger.warning(
             f"{_WORKER_SALT2MU_CONNECTION.salt2mu_results['maxprob']} MAXPROB > 1! "
             "Returning -np.inf"
         )
         return -np.inf
 
-    sim_bindf = _WORKER_SALT2MU_CONNECTION.salt2mu_results["bindf"].dropna()
+    sim_bindf = _WORKER_SALT2MU_CONNECTION.salt2mu_results["bindf"]
     sim_vals = dffixer(sim_bindf)
 
-    realdata_bindf = _WORKER_REALDATA_SALT2MU_RESULTS["bindf"].dropna()
+    realdata_bindf = _WORKER_REALDATA_SALT2MU_RESULTS["bindf"]
     realdata_vals = dffixer(realdata_bindf)
 
     # Build dictionary pairing data and simulation values
@@ -573,19 +575,13 @@ def log_prior(theta: NDArray[np.float64] | list[float]) -> float:
         _CONFIG.splitdict,
         _CONFIG.DISTRIBUTION_PARAMETERS,
     )
-    logger.debug(f"plist: {plist}")
-
     out_of_bounds = False
     for key in thetadict.keys():
-        logger.debug(f"key: {key}")
         temp_ps = thetawriter(theta, key)
-        logger.debug(f"temp_ps: {temp_ps}")
         plist_n = thetawriter(theta, key, names=plist)
         for t in range(len(temp_ps)):
-            logger.debug(f"plist name: {plist_n[t]}")
             lowb = _CONFIG.parameter_initialization[plist_n[t]]["bounds"][0]
             highb = _CONFIG.parameter_initialization[plist_n[t]]["bounds"][1]
-            logger.debug(f"{lowb} < {temp_ps[t]} < {highb}")
             if not lowb < temp_ps[t] < highb:
                 out_of_bounds = True
 
