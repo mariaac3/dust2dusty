@@ -39,7 +39,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from dust2dusty.utils import cmd_exe, normhisttodata, pconv, set_numpy_threads
+from dust2dusty.utils import cmd_exe, generate_split_array, normhisttodata, pconv, set_numpy_threads
 
 # Call BEFORE importing numpy
 set_numpy_threads(4)
@@ -147,7 +147,7 @@ def thetawriter(
 def array_conv(
     inp: str,
     splitdict: dict[str, dict[str, float]],
-    splitarr: dict[str, str],
+    splitarr: dict[str, dict[str, Any]],
 ) -> list[NDArray[np.float64]]:
     """
     Generate arrays for PDF evaluation based on parameter and its splits.
@@ -160,7 +160,7 @@ def array_conv(
         inp: Parameter name (e.g., 'c', 'RV', 'EBV').
         splitdict: Dictionary defining splits for this parameter.
         splitarr: Dictionary mapping split variables to array generation
-            strings (e.g., {'HOST_LOGMASS': 'np.arange(5,15,1)'}).
+            specs (e.g., {'HOST_LOGMASS': {'method': 'arange', 'args': [5, 15, 1]}}).
 
     Returns:
         List of [param_array, split1_array, split2_array, ...].
@@ -175,7 +175,7 @@ def array_conv(
     arrlist.append(_CONFIG.DEFAULT_PARAMETER_RANGES[inp])
     if inp in splitdict.keys():
         for s in splitdict[inp].keys():
-            arrlist.append(eval(splitarr[s]))
+            arrlist.append(generate_split_array(splitarr[s]))
     return arrlist
 
 
@@ -630,8 +630,8 @@ def log_prior(theta: NDArray[np.float64] | list[float]) -> float:
         plist_n = thetawriter(theta, key, names=plist)
         for t in range(len(temp_ps)):
             logger.debug(f"plist name: {plist_n[t]}")
-            lowb = _CONFIG.parameter_initialization[plist_n[t]][3][0]
-            highb = _CONFIG.parameter_initialization[plist_n[t]][3][1]
+            lowb = _CONFIG.parameter_initialization[plist_n[t]]["bounds"][0]
+            highb = _CONFIG.parameter_initialization[plist_n[t]]["bounds"][1]
             logger.debug(f"{lowb} < {temp_ps[t]} < {highb}")
             if not lowb < temp_ps[t] < highb:
                 out_of_bounds = True

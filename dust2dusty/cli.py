@@ -135,8 +135,8 @@ class Config:
     paramshapesdict: dict[str, str] = field(default_factory=dict)
     splitdict: dict[str, dict[str, float]] = field(default_factory=dict)
     splitparam: str = "HOST_LOGMASS"
-    parameter_initialization: dict[str, list[Any]] = field(default_factory=dict)
-    splitarr: dict[str, str] = field(default_factory=dict)
+    parameter_initialization: dict[str, dict[str, Any]] = field(default_factory=dict)
+    splitarr: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # Command line arguments
     # - Command-line overrides
