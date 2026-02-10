@@ -24,6 +24,23 @@ from dust2dusty.salt2mu import SALT2mu
 # Constants
 JOBNAME_SALT2MU: str = "SALT2mu.exe"
 
+_ARRAY_GENERATORS = {
+    "arange": np.arange,
+    "linspace": np.linspace,
+}
+
+
+def generate_split_array(spec: dict[str, Any]) -> NDArray[np.float64]:
+    """Generate a numpy array from a splitarr config entry.
+
+    Args:
+        spec: Dict with keys 'method' (arange or linspace) and 'args' (list of numbers).
+
+    Returns:
+        The generated numpy array.
+    """
+    return _ARRAY_GENERATORS[spec["method"]](*spec["args"])
+
 
 def cmd_exe(executable: str, input_file: str) -> str:
     """
@@ -178,7 +195,7 @@ def input_cleaner(
     paramshapesdict: dict[str, str],
     splitdict: dict[str, dict[str, float]],
     distribution_parameters: dict[str, list[str]],
-    parameter_initialization: dict[str, list[Any]],
+    parameter_initialization: dict[str, dict[str, Any]],
     parameter_overrides: dict[str, float],
     walkfactor: int = 2,
 ) -> tuple[NDArray[np.float64], int, int]:
@@ -194,8 +211,8 @@ def input_cleaner(
         splitdict: Nested dict defining parameter splits.
         distribution_parameters: Dict mapping distribution names to parameter names.
         parameter_initialization: Dictionary containing initialization info for
-            each expanded parameter. Format:
-            {param_name: [mean, std, require_positive, [lower_bound, upper_bound]]}.
+            each expanded parameter. Each entry is a dict with keys:
+            start, stdev, require_positive, bounds (a [lower, upper] list).
         parameter_overrides: Dictionary of parameters to fix (not fit).
         walkfactor: Multiplier for number of walkers (nwalkers = ndim * walkfactor).
 
@@ -212,14 +229,14 @@ def input_cleaner(
     pos = np.abs(0.1 * np.random.randn(nwalkers, len(plist)))
     for entry in range(len(plist)):
         newpos_param = parameter_initialization[plist[entry]]
-        pos[:, entry] = np.random.normal(newpos_param[0], newpos_param[1], len(pos[:, entry]))
-        if newpos_param[2]:
+        pos[:, entry] = np.random.normal(newpos_param["start"], newpos_param["stdev"], len(pos[:, entry]))
+        if newpos_param["require_positive"]:
             pos[:, entry] = np.abs(pos[:, entry])
-        while any(ele < newpos_param[3][0] for ele in pos[:, entry]) or any(
-            ele > newpos_param[3][1] for ele in pos[:, entry]
+        while any(ele < newpos_param["bounds"][0] for ele in pos[:, entry]) or any(
+            ele > newpos_param["bounds"][1] for ele in pos[:, entry]
         ):
-            pos[:, entry] = np.random.normal(newpos_param[0], newpos_param[1], len(pos[:, entry]))
-            if newpos_param[2]:
+            pos[:, entry] = np.random.normal(newpos_param["start"], newpos_param["stdev"], len(pos[:, entry]))
+            if newpos_param["require_positive"]:
                 pos[:, entry] = np.abs(pos[:, entry])
     return pos, nwalkers, len(plist)
 

@@ -40,6 +40,8 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
+from dust2dusty.utils import generate_split_array
+
 from dust2dusty.log import get_logger, setup_salt2mu_logger
 
 if TYPE_CHECKING:
@@ -226,7 +228,7 @@ class SALT2mu:
                 arr.append(config.DEFAULT_PARAMETER_RANGES[key])
                 if key in config.splitdict.keys():
                     for s in config.splitdict[key].keys():
-                        arr.append(eval(config.splitarr[s]))
+                        arr.append(generate_split_array(config.splitarr[s]))
             self.logger.debug(f"{key}")
             self.logger.debug(f"{config.paramshapesdict[key]}")
             self.logger.debug(f"{config.splitdict}")

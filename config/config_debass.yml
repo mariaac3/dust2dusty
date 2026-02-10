@@ -28,27 +28,88 @@ SPLITDICT: {'RV': {'HOST_LOGMASS': 10 }, 'EBV': {'HOST_LOGMASS': 10}} #A nested 
 PARAMS: [-0.08827198, 0.05043889, 0.0, 1.0, 1.0, 0.2, 1.2, 1.2, 2.95953092, 1.19440396, 1.99422843, 0.72706128, 0.09966235, 0.10151627, 0.12812847, 0.12945593, 1.7478346, 0.27062389] #This feature is only used in conjunction with the "SINGLE" command line argument. Order: c(2), x1(6), RV(4), EBV(4), beta(2)
 
 # SPLITARR is the array to generate over for multi dimensional GENPDFS.
-SPLITARR: {'HOST_LOGMASS':'np.arange(5,15,1)', 'SIM_ZCMB':'np.linspace(-2.4,2.6,3)'}
+# method: arange (evenly spaced by step) or linspace (evenly spaced by count)
+# args: [start, stop, step_or_count]
+SPLITARR:
+  HOST_LOGMASS:
+    method: arange
+    args: [5, 15, 1]
+  SIM_ZCMB:
+    method: linspace
+    args: [-2.4, 2.6, 3]
 
 ### DEFAULTS ###
 # Right now the dictionary entries are made by hand, and need to match any split options.
-#PARAMETER_INITIALIZATION: Contains walker and boundary information. Walkers are initialised in Gaussian spread
-#First Entry is the mean starting location for the walker
-#Second Entry is the stdev of starting locations for the walker
-#Third Entry is whether or not the mean value of the walker needs to be true (eg for stdevs)
-#Fourth Entry is [lower_bound, upper_bound] for the parameter
+# PARAMETER_INITIALIZATION: Contains walker and boundary information.
+# Walkers are initialised in a Gaussian spread around the starting value.
+#   start: Mean starting location for the walkers
+#   stdev: Standard deviation of starting locations for the walkers
+#   require_positive: Whether the parameter must be positive (e.g. for stdevs, taus)
+#   bounds: [lower_bound, upper_bound] for the parameter
 
-PARAMETER_INITIALIZATION:  {'c_mu':[-0.077, 0.01, False, [-0.3,-0.04]],
-             'c_std':[0.058, 0.01, True, [0.01, 0.2]],
-             'x1_mu':[0.0, 0.2, False, [-3, 3]],
-             'x1_std_l':[1.0, 0.1, True, [0.3, 3]],
-             'x1_std_r':[1.0, 0.1, True, [0.3, 3]],
-             'RV_mu_HOST_LOGMASS_low':[3.026, 0.38, True, [0.8, 4]],
-             'RV_mu_HOST_LOGMASS_high':[2.138, 0.25, True, [0.8, 4]],
-             'RV_std_HOST_LOGMASS_low':[1.481, 0.42, True, [0.25,4]],
-             'RV_std_HOST_LOGMASS_high':[1.06, 0.43, True, [0.25,4]],
-             'EBV_Tau_HOST_LOGMASS_low':[0.09, 0.02, True, [0.05, 0.2]],
-             'EBV_Tau_HOST_LOGMASS_high':[0.11, 0.02, True, [0.05, 0.2]],
-             'beta_mu':[2.064, 0.31, False, [1,3]],
-             'beta_std':[0.308, .08, True, [0, 1]],
-}
+PARAMETER_INITIALIZATION:
+  c_mu:
+    start: -0.077
+    stdev: 0.01
+    require_positive: false
+    bounds: [-0.3, -0.04]
+  c_std:
+    start: 0.058
+    stdev: 0.01
+    require_positive: true
+    bounds: [0.01, 0.2]
+  x1_mu:
+    start: 0.0
+    stdev: 0.2
+    require_positive: false
+    bounds: [-3, 3]
+  x1_std_l:
+    start: 1.0
+    stdev: 0.1
+    require_positive: true
+    bounds: [0.3, 3]
+  x1_std_r:
+    start: 1.0
+    stdev: 0.1
+    require_positive: true
+    bounds: [0.3, 3]
+  RV_mu_HOST_LOGMASS_low:
+    start: 3.026
+    stdev: 0.38
+    require_positive: true
+    bounds: [0.8, 4]
+  RV_mu_HOST_LOGMASS_high:
+    start: 2.138
+    stdev: 0.25
+    require_positive: true
+    bounds: [0.8, 4]
+  RV_std_HOST_LOGMASS_low:
+    start: 1.481
+    stdev: 0.42
+    require_positive: true
+    bounds: [0.25, 4]
+  RV_std_HOST_LOGMASS_high:
+    start: 1.06
+    stdev: 0.43
+    require_positive: true
+    bounds: [0.25, 4]
+  EBV_Tau_HOST_LOGMASS_low:
+    start: 0.09
+    stdev: 0.02
+    require_positive: true
+    bounds: [0.05, 0.2]
+  EBV_Tau_HOST_LOGMASS_high:
+    start: 0.11
+    stdev: 0.02
+    require_positive: true
+    bounds: [0.05, 0.2]
+  beta_mu:
+    start: 2.064
+    stdev: 0.31
+    require_positive: false
+    bounds: [1, 3]
+  beta_std:
+    start: 0.308
+    stdev: 0.08
+    require_positive: true
+    bounds: [0, 1]
