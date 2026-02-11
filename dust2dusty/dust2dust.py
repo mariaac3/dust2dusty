@@ -591,20 +591,16 @@ def log_prior(theta: NDArray[np.float64] | list[float]) -> float:
         _CONFIG.splitdict,
         _CONFIG.DISTRIBUTION_PARAMETERS,
     )
-    out_of_bounds = False
     for key in thetadict.keys():
         temp_ps = thetawriter(theta, key)
         plist_n = thetawriter(theta, key, names=plist)
         for t in range(len(temp_ps)):
             lowb = _CONFIG.parameter_initialization[plist_n[t]]["bounds"][0]
             highb = _CONFIG.parameter_initialization[plist_n[t]]["bounds"][1]
+            logger.debug(f"Prior on {plist_n[t]} - {temp_ps[t]} is [{lowb}, {highb}]")
             if not lowb < temp_ps[t] < highb:
-                out_of_bounds = True
-
-    if out_of_bounds:
-        return -np.inf
-    else:
-        return 0.0
+                return -np.inf
+    return 0.0
 
 
 def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float:

@@ -227,7 +227,11 @@ class SALT2mu:
                 if key in config.splitdict.keys():
                     for s in config.splitdict[key].keys():
                         spec = config.splitarr[s]
-                        arr.append({"arange": np.arange, "linspace": np.linspace}[spec["method"]](*spec["args"]))
+                        arr.append(
+                            {"arange": np.arange, "linspace": np.linspace}[spec["method"]](
+                                *spec["args"]
+                            )
+                        )
             self.logger.debug(f"{key}")
             self.logger.debug(f"{config.paramshapesdict[key]}")
             self.logger.debug(f"{config.splitdict}")
@@ -294,6 +298,7 @@ class SALT2mu:
                 data_lines.append(l.replace("ROW:", "").strip())
             else:
                 pass
+
         self.salt2mu_results["bindf"] = pd.read_csv(
             StringIO("\n".join(data_lines)),
             names=names,
