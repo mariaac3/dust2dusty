@@ -335,13 +335,13 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         optmask = 1
 
     outdir = Path(_CONFIG.outdir)
-    sim_salt2mu_out = outdir / f"{directory}/{_WORKER_INDEX}_SUBPROCESS_SIM_OUT.DAT"
+    sim_salt2mu_out = outdir / f"{directory}/{_WORKER_INDEX:02d}_SUBPROCESS_SIM_OUT.DAT"
     sim_salt2mu_out.touch()
 
-    crosstalk_pdf_file = outdir / f"{directory}/{_WORKER_INDEX}_PYTHONCROSSTALK_OUT.DAT"
+    crosstalk_pdf_file = outdir / f"{directory}/{_WORKER_INDEX:02d}_PYTHONCROSSTALK_OUT.DAT"
     crosstalk_pdf_file.touch()
 
-    subprocess_log_sim = outdir / f"{directory}/{_WORKER_INDEX}_SUBPROCESS_LOG_SIM.STDOUT"
+    subprocess_log_sim = outdir / f"{directory}/{_WORKER_INDEX:02d}_SUBPROCESS_LOG_SIM.STDOUT"
     subprocess_log_sim.touch()
 
     # Generate output table specification (color bins x split parameter bins)
@@ -676,7 +676,7 @@ def _init_worker(
     if debug:
         logging.getLogger("dust2dusty").setLevel(logging.DEBUG)
 
-    log_path = str(Path(config.outdir) / "logs" / f"worker_{_WORKER_INDEX}.log")
+    log_path = str(Path(config.outdir) / "logs" / f"worker_{_WORKER_INDEX:02d}.log")
     add_file_handler(log_path)
 
     _WORKER_SALT2MU_CONNECTION = init_salt2mu_worker_connection()

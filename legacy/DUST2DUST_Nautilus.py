@@ -645,15 +645,15 @@ def init_connection(index, real=True, debug=False, CMD_DATA=None, cmd_sim=None):
     elif SINGLE:
         OPTMASK = 1
 
-    realdataout = f"{OUTDIR}{directory}/%d_SUBPROCESS_REALDATA_OUT.DAT" % index
+    realdataout = f"{OUTDIR}{directory}/%02d_SUBPROCESS_REALDATA_OUT.DAT" % index
     Path(realdataout).touch()
-    simdataout = f"{OUTDIR}{directory}/%d_SUBROCESS_SIM_OUT.DAT" % index
+    simdataout = f"{OUTDIR}{directory}/%02d_SUBROCESS_SIM_OUT.DAT" % index
     Path(simdataout).touch()
-    mapsout = f"{OUTDIR}{directory}/%d_PYTHONCROSSTALK_OUT.DAT" % index
+    mapsout = f"{OUTDIR}{directory}/%02d_PYTHONCROSSTALK_OUT.DAT" % index
     Path(mapsout).touch()
-    subprocess_log_data = f"{OUTDIR}{directory}/%d_SUBPROCESS_LOG_DATA.STDOUT" % index
+    subprocess_log_data = f"{OUTDIR}{directory}/%02d_SUBPROCESS_LOG_DATA.STDOUT" % index
     Path(subprocess_log_data).touch()
-    subprocess_log_sim = f"{OUTDIR}{directory}/%d_SUBPROCESS_LOG_SIM.STDOUT" % index
+    subprocess_log_sim = f"{OUTDIR}{directory}/%02d_SUBPROCESS_LOG_SIM.STDOUT" % index
     Path(subprocess_log_sim).touch()
     arg_outtable = f"'c(6,-0.2:0.25)*{splitparamdict[SPLITPARAM]}'"  # need to programmatically generate the second option
     GENPDF_NAMES = f"SIM_x1,{SPLITPARAM},SIM_c,SIM_RV,SIM_EBV,SIM_ZCMB,SIM_beta"  # need to programmatically generate the split

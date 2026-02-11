@@ -194,7 +194,7 @@ class Config:
                 setattr(self, f.name, f.default)
 
 
-def create_output_directories(outdir: str, logger: logging.Logger):
+def create_output_directories(outdir: str, logger: logging.Logger, force: bool = False):
     """
     Create output directory structure for DUST2DUSTY results.
 
@@ -208,15 +208,29 @@ def create_output_directories(outdir: str, logger: logging.Logger):
     Args:
         outdir: Path to main output directory (can be relative or absolute).
         logger: Logger instance for output messages.
+        force: If True, remove existing output directory before creating.
 
     Returns:
         Absolute path to output directory with trailing slash.
 
     Raises:
+        FileExistsError: If output directory already exists and force is False.
         SystemExit: If directory structure cannot be created.
     """
     # Use current directory if none specified
     outdir = Path(outdir)
+
+    if outdir.exists():
+        if force:
+            import shutil
+
+            logger.warning(f"Removing existing output directory: {outdir.absolute()}")
+            shutil.rmtree(outdir)
+        else:
+            raise FileExistsError(
+                f"Output directory already exists: {outdir.absolute()}. Use --FORCE_OVERRIDE to overwrite."
+            )
+
     logger.debug(f"Create main directory {outdir.absolute()}")
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -295,7 +309,7 @@ def load_config(config_path: str, args: argparse.Namespace, logger: logging.Logg
     logger.info(f"Loaded configuration from: {config_path}")
 
     # Set up output directory structure
-    create_output_directories(config.outdir, logger)
+    create_output_directories(config.outdir, logger, force=args.FORCE_OVERRIDE)
 
     # Log configuration summary
     logger.info("Configuration finalized successfully:")
@@ -370,6 +384,12 @@ def get_args() -> argparse.Namespace:
         "--VERBOSE",
         action="store_true",
         help="Show INFO level logging on terminal (default: only WARNING and above)",
+    )
+
+    parser.add_argument(
+        "--FORCE_OVERRIDE",
+        action="store_true",
+        help="Remove and recreate output directory if it already exists",
     )
 
     return parser.parse_args()
