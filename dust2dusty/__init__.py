@@ -51,7 +51,7 @@ from dust2dusty.salt2mu import SALT2mu
 from dust2dusty.utils import (
     init_salt2mu_realdata,
     input_cleaner,
-    normhisttodata,
+    norm_hist_to_data,
     pconv,
     subprocess_to_snana,
 )
@@ -76,7 +76,7 @@ __all__ = [
     "SALT2mu",
     # Utility functions
     "input_cleaner",
-    "normhisttodata",
+    "norm_hist_to_data",
     "pconv",
     "subprocess_to_snana",
 ]

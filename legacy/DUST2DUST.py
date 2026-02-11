@@ -760,7 +760,9 @@ def LL_Creator(realdata, sim, inparr, returnall=False, RMS_weight=1):
     # Color histogram
     data_color, sim_color = inparr["color_hist"]
     if len(data_color) > 0 and len(sim_color) > 0:
-        datacount_color, simcount_color, poisson_color, ww = normhisttodata(data_color, sim_color)
+        datacount_color, simcount_color, poisson_color, ww = norm_hist_to_data(
+            data_color, sim_color
+        )
         LL_dict["color_hist"] = -0.5 * np.sum(
             (datacount_color - simcount_color) ** 2 / poisson_color**2
         )
@@ -771,7 +773,7 @@ def LL_Creator(realdata, sim, inparr, returnall=False, RMS_weight=1):
     # X1 (stretch) histogram
     data_x1, sim_x1 = inparr["x1_hist"]
     if len(data_x1) > 0 and len(sim_x1) > 0:
-        datacount_x1, simcount_x1, poisson_x1, ww = normhisttodata(data_x1, sim_x1)
+        datacount_x1, simcount_x1, poisson_x1, ww = norm_hist_to_data(data_x1, sim_x1)
         LL_dict["x1_hist"] = -0.5 * np.sum((datacount_x1 - simcount_x1) ** 2 / poisson_x1**2)
         datacount_dict["x1_hist"] = datacount_x1
         simcount_dict["x1_hist"] = simcount_x1
@@ -1031,7 +1033,7 @@ def init_connection(config, index, real=True, debug=False):
     # END init_connection
 
 
-def normhisttodata(datacount, simcount):
+def norm_hist_to_data(datacount, simcount):
     """
     Normalize simulation histogram to match total counts in data.
 
@@ -1062,7 +1064,7 @@ def normhisttodata(datacount, simcount):
     poisson[datacount == 0] = 1
     poisson[~np.isfinite(poisson)] = 1
     return datacount[ww], simcount[ww], poisson[ww], ww
-    # END normhisttodata
+    # END norm_hist_to_data
 
 
 # =======================================================

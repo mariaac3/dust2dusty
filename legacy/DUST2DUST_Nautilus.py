@@ -408,7 +408,7 @@ def LL_Creator(
     # thetaconverter(INP_PARAMS)
     for n, i in enumerate(inparr):
         if n == 0:  # colour
-            datacount, simcount, poisson, ww = normhisttodata(i[0], i[1])
+            datacount, simcount, poisson, ww = norm_hist_to_data(i[0], i[1])
         elif n == 1:  # Hi mass MURES
             datacount = i[0]
             simcount = i[1]
@@ -715,7 +715,7 @@ def connection_next(connection):  # Happens at the end of each iteration.
     # END connection_next
 
 
-def normhisttodata(datacount, simcount):
+def norm_hist_to_data(datacount, simcount):
     # Helper function to
     # normalize the simulated histogram to the total counts of the data
     datacount = np.array(datacount)
@@ -733,7 +733,7 @@ def normhisttodata(datacount, simcount):
     poisson[simcount == 0] = 1
     poisson[~np.isfinite(poisson)] = 1
     return datacount[ww], simcount[ww], poisson[ww], ww
-    # END normhisttodata
+    # END norm_hist_to_data
 
 
 # =======================================================
