@@ -983,15 +983,15 @@ def init_connection(config, index, real=True, debug=False):
     if debug:
         OPTMASK = 1
 
-    realdataout = f"{config.outdir}{directory}/{index}_SUBPROCESS_REALDATA_OUT.DAT"
+    realdataout = f"{config.outdir}{directory}/{index:02d}_SUBPROCESS_REALDATA_OUT.DAT"
     Path(realdataout).touch()
-    simdataout = f"{config.outdir}{directory}/{index}_SUBROCESS_SIM_OUT.DAT"
+    simdataout = f"{config.outdir}{directory}/{index:02d}_SUBROCESS_SIM_OUT.DAT"
     Path(simdataout).touch()
-    mapsout = f"{config.outdir}{directory}/{index}_PYTHONCROSSTALK_OUT.DAT"
+    mapsout = f"{config.outdir}{directory}/{index:02d}_PYTHONCROSSTALK_OUT.DAT"
     Path(mapsout).touch()
-    subprocess_log_data = f"{config.outdir}{directory}/{index}_SUBPROCESS_LOG_DATA.STDOUT"
+    subprocess_log_data = f"{config.outdir}{directory}/{index:02d}_SUBPROCESS_LOG_DATA.STDOUT"
     Path(subprocess_log_data).touch()
-    subprocess_log_sim = f"{config.outdir}{directory}/{index}_SUBPROCESS_LOG_SIM.STDOUT"
+    subprocess_log_sim = f"{config.outdir}{directory}/{index:02d}_SUBPROCESS_LOG_SIM.STDOUT"
     Path(subprocess_log_sim).touch()
 
     # Generate output table specification (color bins x split parameter bins)
