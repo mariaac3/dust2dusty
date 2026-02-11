@@ -19,8 +19,6 @@ from numpy.typing import NDArray
 if TYPE_CHECKING:
     from dust2dusty.cli import Config
 
-from dust2dusty.salt2mu import SALT2mu
-
 # Constants
 JOBNAME_SALT2MU: str = "SALT2mu.exe"
 
@@ -103,6 +101,8 @@ def init_salt2mu_realdata(
     cmd = cmd_exe(JOBNAME_SALT2MU, config.data_input) + (
         f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} debug_flag=930"
     )
+
+    from dust2dusty.salt2mu import SALT2mu
 
     real_data = SALT2mu(
         cmd,
