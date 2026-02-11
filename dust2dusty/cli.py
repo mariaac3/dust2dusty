@@ -26,7 +26,7 @@ import yaml
 from numpy.typing import NDArray
 
 from dust2dusty.log import add_file_handler, get_logger, setup_logging
-from dust2dusty.utils import __dust2dust_str__
+from dust2dusty.utils import __dust2dust_str__, pconv
 
 
 @dataclass
@@ -131,7 +131,7 @@ class Config:
 
     # Parameter configuration
     inp_params: list[str] = field(default_factory=list)
-    params: list[float] = field(default_factory=list)
+    params: dict[str, dict[str, Any]] = field(default_factory=dict)
     paramshapesdict: dict[str, str] = field(default_factory=dict)
     splitdict: dict[str, dict[str, float]] = field(default_factory=dict)
     splitparam: str = "HOST_LOGMASS"
@@ -470,7 +470,14 @@ def main() -> int:
         # Test run mode - single likelihood evaluation (no MPI needed)
         if config.TEST_RUN:
             _init_worker(config, realdata_salt2mu_results, debug=debug)
-            logger.info(f"Test run result: {log_probability(config.params, last=True)}")
+            expanded_names = pconv(
+                config.inp_params,
+                config.paramshapesdict,
+                config.splitdict,
+                config.DISTRIBUTION_PARAMETERS,
+            )
+            theta = [config.params[name]["start"] for name in expanded_names]
+            logger.info(f"Test run result: {log_probability(theta, last=True)}")
             sys.exit(0)
 
         # Full MCMC run

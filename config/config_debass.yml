@@ -25,7 +25,33 @@ PARAMSHAPESDICT: {'c': 'Gaussian', 'x1': 'Skewed Gaussian', 'RV':'Gaussian', 'EB
 SPLITPARAM: HOST_LOGMASS
 TRUEPARAM: HOST_LOGMASS
 SPLITDICT: {'RV': {'HOST_LOGMASS': 10 }, 'EBV': {'HOST_LOGMASS': 10}} #A nested dictionary informing any splits.
-PARAMS: [-0.08827198, 0.05043889, 0.0, 1.0, 1.0, 0.2, 1.2, 1.2, 2.95953092, 1.19440396, 1.99422843, 0.72706128, 0.09966235, 0.10151627, 0.12812847, 0.12945593, 1.7478346, 0.27062389] #This feature is only used in conjunction with the "SINGLE" command line argument. Order: c(2), x1(6), RV(4), EBV(4), beta(2)
+PARAMS:
+  c_mu:
+    start: -0.08827198
+  c_std:
+    start: 0.05043889
+  x1_mu:
+    start: 0.0
+  x1_std_l:
+    start: 1.0
+  x1_std_r:
+    start: 1.0
+  RV_mu_HOST_LOGMASS_low:
+    start: 2.95953092
+  RV_mu_HOST_LOGMASS_high:
+    start: 1.19440396
+  RV_std_HOST_LOGMASS_low:
+    start: 1.99422843
+  RV_std_HOST_LOGMASS_high:
+    start: 0.72706128
+  EBV_Tau_HOST_LOGMASS_low:
+    start: 0.09966235
+  EBV_Tau_HOST_LOGMASS_high:
+    start: 0.10151627
+  beta_mu:
+    start: 1.7478346
+  beta_std:
+    start: 0.27062389
 
 # SPLITARR is the array to generate over for multi dimensional GENPDFS.
 # method: arange (evenly spaced by step) or linspace (evenly spaced by count)
