@@ -100,9 +100,9 @@ Running `dust2dusty` creates the following output tree (default `./dust2dust_out
 │   └── worker_salt2mu_N.log          # SALT2mu subprocess I/O for worker N
 ├── realdata_files/                  # Real data SALT2mu outputs
 └── worker_files/                    # Per-worker SALT2mu subprocess files
-    ├── {rank}_SUBPROCESS_SIM_OUT.DAT
-    ├── {rank}_PYTHONCROSSTALK_OUT.DAT
-    └── {rank}_SUBPROCESS_LOG_SIM.STDOUT
+    ├── {rank}_SUBPROCESS_SALT2MU_RES.DAT
+    ├── {rank}_GENPDF_PYTHONCROSSTALK.DAT
+    └── {rank}_SUBPROCESS_SALT2MU_LOG.STDOUT
 ```
 
 In serial mode you get `master.log` + `worker_0.log` + `worker_salt2mu_0.log`.

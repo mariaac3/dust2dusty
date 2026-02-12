@@ -105,7 +105,7 @@ class SALT2mu:
                 walker_id, log_dir=log_dir, debug=debug
             )
 
-        self.iter: int = -1
+        self.iter: int = 0
         self.debug: bool = debug
         self.ready_enditer: str = "Enter expected ITERATION number"
         self.done: str = "Graceful Program Exit. Bye."
@@ -121,29 +121,28 @@ class SALT2mu:
 
         self.logger.info("Init SALT2mu instance. ")
         self.logger.info("## ================================== ##")
-        self.logger.info(f"Command: {self.command}")
+        self.logger.info(f"Command:\n {self.command}")
         self.logger.info(f"pdf_crosstalk_file: {pdf_crosstalk_file}")
         self.logger.debug("DEBUG MODE ON")
 
-        self.logger.info("Command being run: " + self.command)
         self.salt2mu_results: dict[str, Any] = {}
 
         if is_realdata:
             if self.debug:
                 self.command = self.command + " write_yaml=1"
-
+            self.iter = -9  # Default value for REAL DATA
             self.logger.info("Running realdata=True")
-            self.logger.debug("## ============== RUN SALT2MU ON REAL DATA ================= ##")
+            self.logger.debug("\n## ============== RUN SALT2MU ON REAL DATA ================= ##")
 
             with (
                 nullcontext()
                 if self.debug
-                else open(log_out.parent / "REALDATA_PROCESSLOG.log", "w")
+                else open(log_out.parent / "REALDATA_SALT2MU_LOG.log", "w")
             ) as stdout:
                 subprocess.run(self.command, shell=True, stdout=stdout)
             self.getData()
             self.logger.debug(
-                "## ===================== END REAL DATA RUN ======================= ##"
+                "## ===================== END REAL DATA RUN ======================= ##\n"
             )
 
         else:
@@ -197,7 +196,7 @@ class SALT2mu:
             if time.time() - start > timeout:
                 raise TimeoutError(f"Timeout waiting for '{expected_text}'")
 
-    def next_iter(
+    def iterate(
         self,
         theta: NDArray[np.float64],
         theta_index_dic: dict[str, list[int]],
@@ -215,11 +214,16 @@ class SALT2mu:
             theta_index_dic: Mapping from parameter names to theta array indices.
             config: Configuration object with parameter specifications.
         """
-        self.iter += 1
+        if self.process.poll() is not None:
+            return subprocess.SubprocessError("Subprocess has already terminated")
         self.write_iterbegin()
+
+        ### Write PDF file with proposed "theta" parameters
+        self.logger.info(f"\n\n-- Write PDF file for iteration: {self.iter} --\n")
 
         for key in config.inp_params:
             key_parameter_values = theta[theta_index_dic[key][0] : theta_index_dic[key][-1] + 1]
+            self.logger.info(f"{key} params = {key_parameter_values}")
 
             arr: list[NDArray[np.float64]] = []
             if key not in ["beta", "alpha"]:
@@ -245,18 +249,21 @@ class SALT2mu:
                 config.PARAM_TO_SALT2MU,
                 arr,
             )
-
-        self.logger.info(f"\n\n##### Launching iteration {self.iter} #####\n")
         self.write_iterend()
+        ### END WRITE PDF
 
-        # Launch SALT2mu on new dist and wait for done
+        ### Run SALT2mu on PDF file and wait for done
+        self.logger.debug(f"\n-- Running SALT2mu iteration {self.iter} --\n")
+
         self.process.stdin.write(f"{self.iter}\n")
         self.process.stdin.flush()
-        self.wait_until_text_in_output(self.ready_enditer)
+        self.wait_until_text_in_output(self.ready_enditer)  # wait SALT2mu execution
 
+        ### Read the data
         self.data = self.getData()
         if last:
             self.quit()
+        self.iter += 1
 
     def getData(self) -> bool:
         """
@@ -280,6 +287,11 @@ class SALT2mu:
         lines = self.SALT2muoutputs.readlines()
         data_lines = []
         for l in lines:
+            if "ITERATION" in l:
+                if int(l.split(":")[-1]) != self.iter:
+                    raise RuntimeError(
+                        "SALT2mu output iteration does not match expected iteration."
+                    )
             if "+-" in l:
                 parts = l.split("=")[1].split()
                 if "alpha" in l:
@@ -475,6 +487,7 @@ class SALT2mu:
         self.pdf_crosstalk_file.truncate(0)
         self.pdf_crosstalk_file.seek(0)
         self.pdf_crosstalk_file.write("ITERATION_BEGIN: %d\n" % self.iter)
+        self.pdf_crosstalk_file.flush()
 
     def write_iterend(self) -> None:
         """
