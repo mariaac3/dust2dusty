@@ -963,9 +963,9 @@ def init_connection(config, index, real=True, debug=False):
         - Creates temporary files in config.outdir/parallel/ for subprocess I/O:
           - {index}_SUBPROCESS_REALDATA_OUT.DAT
           - {index}_SUBROCESS_SIM_OUT.DAT
-          - {index}_PYTHONCROSSTALK_OUT.DAT
+          - {index}_GENPDF_PYTHONCROSSTALK.DAT
           - {index}_SUBPROCESS_LOG_DATA.STDOUT
-          - {index}_SUBPROCESS_LOG_SIM.STDOUT
+          - {index}_SUBPROCESS_SALT2MU_LOG.STDOUT
         - Launches SALT2mu.exe subprocess(es)
 
     OPTMASK values:
@@ -987,12 +987,12 @@ def init_connection(config, index, real=True, debug=False):
     Path(realdataout).touch()
     simdataout = f"{config.outdir}{directory}/{index:02d}_SUBROCESS_SIM_OUT.DAT"
     Path(simdataout).touch()
-    mapsout = f"{config.outdir}{directory}/{index:02d}_PYTHONCROSSTALK_OUT.DAT"
+    mapsout = f"{config.outdir}{directory}/{index:02d}_GENPDF_PYTHONCROSSTALK.DAT"
     Path(mapsout).touch()
     subprocess_log_data = f"{config.outdir}{directory}/{index:02d}_SUBPROCESS_LOG_DATA.STDOUT"
     Path(subprocess_log_data).touch()
-    subprocess_log_sim = f"{config.outdir}{directory}/{index:02d}_SUBPROCESS_LOG_SIM.STDOUT"
-    Path(subprocess_log_sim).touch()
+    SUBPROCESS_SALT2MU_LOG = f"{config.outdir}{directory}/{index:02d}_SUBPROCESS_SALT2MU_LOG.STDOUT"
+    Path(SUBPROCESS_SALT2MU_LOG).touch()
 
     # Generate output table specification (color bins x split parameter bins)
     arg_outtable = f"'c(6,-0.2:0.25)*{Config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
@@ -1027,7 +1027,7 @@ def init_connection(config, index, real=True, debug=False):
             f"debug_flag=930"
         )
 
-    connection = callSALT2mu.SALT2mu(cmd, mapsout, simdataout, subprocess_log_sim, debug=debug)
+    connection = callSALT2mu.SALT2mu(cmd, mapsout, simdataout, SUBPROCESS_SALT2MU_LOG, debug=debug)
 
     return realdata, connection
     # END init_connection

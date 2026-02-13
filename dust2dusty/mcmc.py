@@ -176,23 +176,23 @@ def MCMC(
                 converged = np.all(tau * 100 < sampler.iteration)
                 converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
 
-                logger.debug(f"\nIteration {sampler.iteration}:")
-                logger.debug(f"  Mean tau: {np.mean(tau):.1f}")
-                logger.debug(f"  Min tau:  {np.min(tau):.1f}")
-                logger.debug(f"  Max tau:  {np.max(tau):.1f}")
-                logger.debug(
+                logger.info(f"\nIteration {sampler.iteration}:")
+                logger.info(f"  Mean tau: {np.mean(tau):.1f}")
+                logger.info(f"  Min tau:  {np.min(tau):.1f}")
+                logger.info(f"  Max tau:  {np.max(tau):.1f}")
+                logger.info(
                     f"  Chain/tau ratio: {sampler.iteration / np.max(tau):.1f} (need > 100)"
                 )
                 if isinstance(old_tau, np.ndarray) and np.isfinite(old_tau).all():
                     tau_change = np.max(np.abs(old_tau - tau) / tau) * 100
-                    logger.debug(f"  Tau change: {tau_change:.2f}% (need < 1%)")
+                    logger.info(f"  Tau change: {tau_change:.2f}% (need < 1%)")
 
                 if converged:
-                    logger.debug("\n" + "=" * 60)
-                    logger.debug("CONVERGENCE ACHIEVED!")
-                    logger.debug(f"  Final iteration: {sampler.iteration}")
-                    logger.debug(f"  Final mean tau: {np.mean(tau):.1f}")
-                    logger.debug("=" * 60)
+                    logger.info("\n" + "=" * 60)
+                    logger.info("CONVERGENCE ACHIEVED!")
+                    logger.info(f"  Final iteration: {sampler.iteration}")
+                    logger.info(f"  Final mean tau: {np.mean(tau):.1f}")
+                    logger.info("=" * 60)
                     break
 
                 old_tau = tau

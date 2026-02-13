@@ -335,14 +335,16 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         optmask = 1
 
     outdir = Path(_CONFIG.outdir)
-    sim_salt2mu_out = outdir / f"{directory}/{_WORKER_INDEX:02d}_SUBPROCESS_SIM_OUT.DAT"
-    sim_salt2mu_out.touch()
+    subprocess_salt2mu_res = outdir / f"{directory}/{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_RES.DAT"
+    subprocess_salt2mu_res.touch()
 
-    crosstalk_pdf_file = outdir / f"{directory}/{_WORKER_INDEX:02d}_PYTHONCROSSTALK_OUT.DAT"
-    crosstalk_pdf_file.touch()
+    genpdf_crosstalk_file = outdir / f"{directory}/{_WORKER_INDEX:02d}_GENPDF_PYTHONCROSSTALK.DAT"
+    genpdf_crosstalk_file.touch()
 
-    subprocess_log_sim = outdir / f"{directory}/{_WORKER_INDEX:02d}_SUBPROCESS_LOG_SIM.STDOUT"
-    subprocess_log_sim.touch()
+    subprocess_salt2mu_log = (
+        outdir / f"{directory}/{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_LOG.STDOUT"
+    )
+    subprocess_salt2mu_log.touch()
 
     # Generate output table specification (color bins x split parameter bins)
     arg_outtable = f"'c(6,-0.2:0.25)*{_CONFIG.SPLIT_PARAMETER_FORMATS[_CONFIG.splitparam]}'"
@@ -359,7 +361,11 @@ def init_salt2mu_worker_connection() -> SALT2mu:
     )
 
     connection = SALT2mu(
-        cmd, crosstalk_pdf_file, sim_salt2mu_out, subprocess_log_sim, debug=_WORKER_DEBUGFLAG
+        cmd,
+        genpdf_crosstalk_file,
+        subprocess_salt2mu_res,
+        subprocess_salt2mu_log,
+        debug=_WORKER_DEBUGFLAG,
     )
 
     return connection
@@ -546,7 +552,7 @@ def log_likelihood(
     logger.debug(f"theta: {theta}, thetha_dic: {theta_index_dic}")
 
     # Run SALT2mu with these PDFs
-    _WORKER_SALT2MU_CONNECTION.next_iter(theta, theta_index_dic, _CONFIG, last=last)
+    _WORKER_SALT2MU_CONNECTION.iterate(theta, theta_index_dic, _CONFIG, last=last)
 
     if _WORKER_SALT2MU_CONNECTION.salt2mu_results["maxprob"] > 1.001:
         logger.warning(
@@ -591,20 +597,16 @@ def log_prior(theta: NDArray[np.float64] | list[float]) -> float:
         _CONFIG.splitdict,
         _CONFIG.DISTRIBUTION_PARAMETERS,
     )
-    out_of_bounds = False
     for key in thetadict.keys():
         temp_ps = thetawriter(theta, key)
         plist_n = thetawriter(theta, key, names=plist)
         for t in range(len(temp_ps)):
             lowb = _CONFIG.parameter_initialization[plist_n[t]]["bounds"][0]
             highb = _CONFIG.parameter_initialization[plist_n[t]]["bounds"][1]
+            logger.debug(f"Prior on {plist_n[t]} - {temp_ps[t]} is [{lowb}, {highb}]")
             if not lowb < temp_ps[t] < highb:
-                out_of_bounds = True
-
-    if out_of_bounds:
-        return -np.inf
-    else:
-        return 0.0
+                return -np.inf
+    return 0.0
 
 
 def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float:
@@ -621,7 +623,7 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
         Log-posterior probability (log_prior + log_likelihood).
     """
     logger.debug(
-        f"\n\n### COMPUTING LOGPROB ON ITERATION {_WORKER_SALT2MU_CONNECTION.iter + 1} ###\n\n"
+        f"\n\n#### COMPUTING LOGPROB ON ITERATION {_WORKER_SALT2MU_CONNECTION.iter} ####\n"
     )
     logger.debug(f"   theta: {theta}")
 
@@ -636,7 +638,7 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
     ll = log_likelihood(theta, **kwargs)
     logger.debug(f"   LogLik = {ll}")
 
-    logger.debug(f"\n\n### END OF ITERATION  {_WORKER_SALT2MU_CONNECTION.iter} ###\n\n")
+    logger.debug(f"\n#### END OF ITERATION  {_WORKER_SALT2MU_CONNECTION.iter - 1} ####n\n")
     return lp + ll
 
 

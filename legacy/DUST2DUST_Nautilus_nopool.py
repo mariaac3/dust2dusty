@@ -502,7 +502,7 @@ def Criteria_Plotter(theta, genpdf_only=False):
             print(
                 "If you did not mean to generate the GENPDF only, something has gone wrong. Otherwise this is working properly."
             )
-            os.rename("parallel/299_PYTHONCROSSTALK_OUT.DAT", "GENPDF.DAT")
+            os.rename("parallel/299_GENPDF_PYTHONCROSSTALK.DAT", "GENPDF.DAT")
             return ()
         else:
             print(
@@ -650,12 +650,12 @@ def init_connection(index, real=True, debug=False, CMD_DATA=None, cmd_sim=None):
     Path(realdataout).touch()
     simdataout = f"{OUTDIR}{directory}/%02d_SUBROCESS_SIM_OUT.DAT" % index
     Path(simdataout).touch()
-    mapsout = f"{OUTDIR}{directory}/%02d_PYTHONCROSSTALK_OUT.DAT" % index
+    mapsout = f"{OUTDIR}{directory}/%02d_GENPDF_PYTHONCROSSTALK.DAT" % index
     Path(mapsout).touch()
     subprocess_log_data = f"{OUTDIR}{directory}/%02d_SUBPROCESS_LOG_DATA.STDOUT" % index
     Path(subprocess_log_data).touch()
-    subprocess_log_sim = f"{OUTDIR}{directory}/%02d_SUBPROCESS_LOG_SIM.STDOUT" % index
-    Path(subprocess_log_sim).touch()
+    SUBPROCESS_SALT2MU_LOG = f"{OUTDIR}{directory}/%02d_SUBPROCESS_SALT2MU_LOG.STDOUT" % index
+    Path(SUBPROCESS_SALT2MU_LOG).touch()
     arg_outtable = f"'c(6,-0.2:0.25)*{splitparamdict[SPLITPARAM]}'"  # need to programmatically generate the second option
     GENPDF_NAMES = f"SIM_x1,{SPLITPARAM},SIM_c,SIM_RV,SIM_EBV,SIM_ZCMB,SIM_beta"  # need to programmatically generate the split
     if real:
@@ -690,7 +690,7 @@ def init_connection(index, real=True, debug=False, CMD_DATA=None, cmd_sim=None):
     )
     if cmd_sim:
         cmd = cmd + " {cmd_sim}"
-    connection = callSALT2mu.SALT2mu(cmd, mapsout, simdataout, subprocess_log_sim, debug=DEBUG)
+    connection = callSALT2mu.SALT2mu(cmd, mapsout, simdataout, SUBPROCESS_SALT2MU_LOG, debug=DEBUG)
     if not real:  # connection is an object that is equal to SUBPROCESS_SIM/DATA
         connection.getResult()  # Gets result, as it were
     return realdata, connection
