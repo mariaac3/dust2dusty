@@ -147,6 +147,7 @@ class Config:
     USE_MPI: bool = False
     TEST_RUN: bool = False
     DEBUG: bool = False
+    DEBUG_FULL: bool = False
     NOWEIGHT: bool = False
     VERBOSE: bool = False
 
@@ -181,6 +182,7 @@ class Config:
             CMD_SIM=args.CMD_SIM,
             TEST_RUN=args.TEST_RUN,
             DEBUG=args.DEBUG or args.TEST_RUN,
+            DEBUG_FULL=args.DEBUG_FULL,
             NOWEIGHT=args.NOWEIGHT,
             USE_MPI=args.USE_MPI,
             VERBOSE=args.VERBOSE,
@@ -355,6 +357,12 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--DEBUG_FULL",
+        action="store_true",
+        help="Run full MCMC with DEBUG-level logging output",
+    )
+
+    parser.add_argument(
         "--NOWEIGHT",
         action="store_true",
         help="Disable reweighting function (use for unweighted sims like G10, C11)",
@@ -467,7 +475,8 @@ def main() -> int:
         # Master process (rank 0) does full setup
         args = get_args()
         debug = args.DEBUG or args.TEST_RUN
-        setup_logging(debug=debug, verbose=args.VERBOSE)
+        debug_logging = debug or args.DEBUG_FULL
+        setup_logging(debug=debug_logging, verbose=args.VERBOSE)
         logger = get_logger()
         logger.info(__dust2dust_str__)
 
@@ -509,7 +518,15 @@ def main() -> int:
         logger.info("=" * 60 + "\n")
         logger.debug("DEBUG MODE ON")
 
-        MCMC(config, pos, nwalkers, ndim, realdata_salt2mu_results, debug=debug)
+        MCMC(
+            config,
+            pos,
+            nwalkers,
+            ndim,
+            realdata_salt2mu_results,
+            debug=debug,
+            debug_logging=debug_logging,
+        )
 
         logger.info("DUST2DUST(Y) complete.")
     else:

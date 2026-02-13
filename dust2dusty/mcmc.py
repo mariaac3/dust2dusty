@@ -32,6 +32,7 @@ def MCMC(
     ndim: int,
     realdata_salt2mu_results: dict[str, Any] | None,
     debug: bool = False,
+    debug_logging: bool = False,
     max_iterations: int = 100000,
     convergence_check_interval: int = 100,
 ) -> emcee.EnsembleSampler | None:
@@ -114,12 +115,12 @@ def MCMC(
     if config.USE_MPI:
         n_proc = comm.Get_size()
         # Broadcast initialization data to all workers BEFORE creating pool
-        comm.bcast((config, realdata_salt2mu_results, debug), root=0)
+        comm.bcast((config, realdata_salt2mu_results, debug or debug_logging), root=0)
         # Now create the pool
         pool = schwimmbad.MPIPool()
     else:
         pool = schwimmbad.SerialPool()
-        _init_worker(config, realdata_salt2mu_results, debug)
+        _init_worker(config, realdata_salt2mu_results, debug or debug_logging)
         n_proc = 1
 
     with pool:

@@ -175,7 +175,7 @@ class SALT2mu:
         for stdout_line in iter(self.process.stdout.readline, ""):
             self.logger.info(stdout_line)
 
-    def wait_until_text_in_output(self, expected_text: str, timeout: int = 120) -> None:
+    def wait_until_text_in_output(self, expected_text: str, timeout: int = 600) -> None:
         """
         Wait for specific text to appear in subprocess stdout.
 
@@ -227,7 +227,11 @@ class SALT2mu:
                 if key in config.splitdict.keys():
                     for s in config.splitdict[key].keys():
                         spec = config.splitarr[s]
-                        arr.append({"arange": np.arange, "linspace": np.linspace}[spec["method"]](*spec["args"]))
+                        arr.append(
+                            {"arange": np.arange, "linspace": np.linspace}[spec["method"]](
+                                *spec["args"]
+                            )
+                        )
             self.logger.debug(f"{key}")
             self.logger.debug(f"{config.paramshapesdict[key]}")
             self.logger.debug(f"{config.splitdict}")
