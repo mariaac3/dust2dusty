@@ -53,7 +53,11 @@ def MCMC(
         nwalkers: Number of MCMC walkers (0 for workers).
         ndim: Number of parameters (dimensions) (0 for workers).
         realdata_salt2mu_results: Dictionary containing real data fit results (None for workers).
-        debug: If True, run in debug mode.
+        debug: If True, run in debug mode (3 iterations, no HDF5 backend,
+            SALT2mu optmask=1). Triggered by --DEBUG or --TEST_RUN.
+        debug_logging: If True, enable DEBUG-level logging on workers
+            without changing MCMC execution or SALT2mu behavior.
+            Triggered by --DEBUG_FULL (or implicitly by --DEBUG).
         max_iterations: Maximum number of iterations before stopping.
         convergence_check_interval: Check convergence every N steps.
 
@@ -112,15 +116,16 @@ def MCMC(
         old_tau: float | NDArray = np.inf
 
     # Choose pool type - MPIPool doesn't support initializer argument
+    worker_debug = debug or debug_logging
     if config.USE_MPI:
         n_proc = comm.Get_size()
         # Broadcast initialization data to all workers BEFORE creating pool
-        comm.bcast((config, realdata_salt2mu_results, debug or debug_logging), root=0)
+        comm.bcast((config, realdata_salt2mu_results, worker_debug), root=0)
         # Now create the pool
         pool = schwimmbad.MPIPool()
     else:
         pool = schwimmbad.SerialPool()
-        _init_worker(config, realdata_salt2mu_results, debug or debug_logging)
+        _init_worker(config, realdata_salt2mu_results, worker_debug)
         n_proc = 1
 
     with pool:

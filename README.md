@@ -26,8 +26,11 @@ pip install dust2dusty
 # Run MCMC fitting
 dust2dusty --CONFIG config/my_config.yml
 
-# Run with debug output
+# Quick debug run (3 iterations only, verbose output, then exit)
 dust2dusty --CONFIG config/my_config.yml --DEBUG
+
+# Full MCMC with debug-level logging output
+dust2dusty --CONFIG config/my_config.yml --DEBUG_FULL
 
 # Run a single likelihood evaluation (test mode)
 dust2dusty --CONFIG config/my_config.yml --TEST_RUN
@@ -123,9 +126,25 @@ black src/dust2dusty tests
 ruff check src/dust2dusty tests
 ```
 
-## Debugging Tools
+## Debug Modes
 
-For debugging the SALT2mu subprocess communication:
+dust2dusty provides several flags for debugging and development:
+
+| Flag | Logging | MCMC Behavior | SALT2mu | Use Case |
+|------|---------|---------------|---------|----------|
+| *(none)* | INFO (file), WARNING (console) | Full convergence run | Production (optmask=4) | Production runs |
+| `--VERBOSE` | INFO (file + console) | Full convergence run | Production (optmask=4) | Monitor progress on console |
+| `--DEBUG` | DEBUG (file + console) | 3 iterations, then exit | Debug (optmask=1, FITRES) | Quick sanity checks |
+| `--DEBUG_FULL` | DEBUG (file + console) | Full convergence run | Production (optmask=4) | Diagnose issues during full runs |
+| `--TEST_RUN` | DEBUG (file + console) | Single likelihood eval | Debug (optmask=1, FITRES) | Verify setup without MCMC |
+
+- `--DEBUG`: Runs only 3 MCMC iterations with debug-level logging and SALT2mu FITRES output, then exits. Useful for quickly checking that the pipeline is wired up correctly.
+- `--DEBUG_FULL`: Runs the full production MCMC (HDF5 backend, convergence monitoring, all output files) but with DEBUG-level logging to console and log files. Useful for diagnosing issues that only appear during longer runs.
+- `--TEST_RUN`: Evaluates the likelihood once at the starting parameter values and exits. No MCMC sampling is performed.
+
+### SALT2mu Subprocess Debugging
+
+For debugging the SALT2mu subprocess communication directly:
 
 ```bash
 # Run SALT2mu once on real data

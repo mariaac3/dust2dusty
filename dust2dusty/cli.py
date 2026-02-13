@@ -5,10 +5,11 @@ This module provides the main entry point for running DUST2DUSTY from the
 command line, as well as configuration loading and the Config dataclass.
 
 Usage:
-    dust2dusty --CONFIG config.yml [--DEBUG] [--TEST_RUN] [--NOWEIGHT]
+    dust2dusty --CONFIG config.yml [--DEBUG] [--DEBUG_FULL] [--TEST_RUN] [--NOWEIGHT]
 
 Example:
     dust2dusty --CONFIG IN_DUST2DUST.yml --DEBUG
+    dust2dusty --CONFIG IN_DUST2DUST.yml --DEBUG_FULL
 """
 
 from __future__ import annotations
@@ -53,7 +54,10 @@ class Config:
         CMD_DATA: Command-line override for data input.
         CMD_SIM: Command-line override for simulation input.
         TEST_RUN: If True, run single likelihood evaluation only.
-        debug: If True, enable verbose debug output.
+        DEBUG: If True, enable debug mode (3 iterations, verbose output,
+            SALT2mu FITRES output).
+        DEBUG_FULL: If True, run full MCMC with DEBUG-level logging
+            but production SALT2mu settings.
         NOWEIGHT: If True, disable reweighting function.
 
     Class Attributes:
@@ -446,6 +450,12 @@ def main() -> int:
 
     Parses command-line arguments, sets up logging, loads configuration,
     and runs either a test evaluation or full MCMC sampling.
+
+    Two independent concerns are controlled separately:
+        - ``debug`` (from --DEBUG/--TEST_RUN): controls short-run behavior
+          (3 iterations, no HDF5 backend, SALT2mu optmask=1).
+        - ``debug_logging`` (from --DEBUG, --TEST_RUN, or --DEBUG_FULL):
+          controls log verbosity (DEBUG level to console and log files).
 
     For MPI runs, only the master process (rank 0) performs full setup.
     Worker processes (rank > 0) skip heavy initialization and go directly

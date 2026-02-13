@@ -29,7 +29,8 @@ Usage:
 
     Optional flags:
         --TEST_RUN: Run single likelihood evaluation for testing
-        --DEBUG: Enable verbose output
+        --DEBUG: Enable verbose output (3 iterations only)
+        --DEBUG_FULL: Full MCMC with DEBUG-level logging
 """
 
 from __future__ import annotations
@@ -659,11 +660,17 @@ def _init_worker(
     this worker based on its process identity. Called once per worker
     when the Pool is created.
 
+    The ``debug`` flag controls both logging verbosity and SALT2mu
+    behavior (optmask). To get DEBUG-level logging without changing
+    SALT2mu behavior, set the logger level at the call site before or
+    after calling this function (see --DEBUG_FULL).
+
     Args:
         config: Configuration object with parameters and paths.
         realdata_salt2mu_results: Dictionary containing real data fit results
             from SALT2mu (shared across workers).
-        debug: If True, enable debug mode.
+        debug: If True, enable debug mode (short run, optmask=1,
+            DEBUG-level logging).
     """
     global _WORKER_REALDATA_SALT2MU_RESULTS
     global _WORKER_SALT2MU_CONNECTION
