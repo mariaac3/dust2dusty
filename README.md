@@ -12,12 +12,6 @@ cd dust2dusty
 pip install -e ".[dev]"
 ```
 
-### From PyPI (when published)
-
-```bash
-pip install dust2dusty
-```
-
 ## Quick Start
 
 ### Command Line
