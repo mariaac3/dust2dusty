@@ -142,17 +142,6 @@ dust2dusty provides several flags for debugging and development:
 - `--DEBUG_FULL`: Runs the full production MCMC (HDF5 backend, convergence monitoring, all output files) but with DEBUG-level logging to console and log files. Useful for diagnosing issues that only appear during longer runs.
 - `--TEST_RUN`: Evaluates the likelihood once at the starting parameter values and exits. No MCMC sampling is performed.
 
-### SALT2mu Subprocess Debugging
-
-For debugging the SALT2mu subprocess communication directly:
-
-```bash
-# Run SALT2mu once on real data
-source RUNTEST_SUBPROCESS_BS20DATA
-
-# Run interactive SALT2mu job
-source RUNTEST_SUBPROCESS_SIM
-```
 
 ## Dependencies
 
