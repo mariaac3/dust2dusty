@@ -129,9 +129,13 @@ def MCMC(
         n_proc = 1
 
     with pool:
-        logger.info(
-            f"Initializing MCMC with {n_proc} CPUs, {nwalkers} walkers, {ndim} dimensions, pool type is {pool.__class__.__name__}"
-        )
+        logger.info("=" * 60)
+        logger.info("Starting MCMC sampling...")
+        logger.info(f"  Walkers: {nwalkers}")
+        logger.info(f"  Dimensions: {ndim}")
+        logger.info(f"  Parameters: {', '.join(config.inp_params)}")
+        logger.debug("DEBUG MODE ON")
+        logger.info("=" * 60 + "\n")
 
         sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, backend=backend)
 
@@ -213,24 +217,24 @@ def MCMC(
             + "-autocorr.npz"
         )
         np.savez(autocorr_filename, autocorr=autocorr_history[:autocorr_index])
-        logger.debug(f"Autocorrelation history saved to: {autocorr_filename}")
+        logger.info(f"Autocorrelation history saved to: {autocorr_filename}")
 
         # Report final statistics
-        logger.debug("\n" + "=" * 60)
-        logger.debug("MCMC COMPLETE")
-        logger.debug("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("MCMC COMPLETE")
+        logger.info("=" * 60)
         try:
             tau = sampler.get_autocorr_time()
             burnin = int(2 * np.max(tau))
             thin = int(0.5 * np.min(tau))
-            logger.debug(f"Final autocorrelation time: {tau}")
-            logger.debug(f"Recommended burn-in: {burnin} steps")
-            logger.debug(f"Recommended thinning: {thin} steps")
-            logger.debug(f"Effective samples: ~{sampler.iteration * nwalkers / np.mean(tau):.0f}")
+            logger.info(f"Final autocorrelation time: {tau}")
+            logger.info(f"Recommended burn-in: {burnin} steps")
+            logger.info(f"Recommended thinning: {thin} steps")
+            logger.info(f"Effective samples: ~{sampler.iteration * nwalkers / np.mean(tau):.0f}")
 
             # Get flattened samples with burn-in and thinning applied
             flat_samples = sampler.get_chain(discard=burnin, thin=thin, flat=True)
-            logger.debug(f"Shape of thinned samples: {flat_samples.shape}")
+            logger.info(f"Shape of thinned samples: {flat_samples.shape}")
 
             # Save thinned samples for convenience
             thinned_filename = (
@@ -240,7 +244,7 @@ def MCMC(
                 + "-samples_thinned.npz"
             )
             np.savez(thinned_filename, samples=flat_samples, tau=tau, burnin=burnin, thin=thin)
-            logger.debug(f"Thinned samples saved to: {thinned_filename}")
+            logger.info(f"Thinned samples saved to: {thinned_filename}")
 
         except emcee.autocorr.AutocorrError:
             logger.warning("Could not compute final autocorrelation time.")

@@ -56,7 +56,10 @@ def cmd_exe(executable: str, input_file: str) -> str:
 
 
 def init_salt2mu_realdata(
-    config: Config, logger: logging.Logger, debug: bool = False
+    config: Config,
+    logger: logging.Logger,
+    debug: bool = False,
+    directory: str = "realdata_files",
 ) -> dict[str, Any]:
     """
     Initialize DUST2DUSTY by running SALT2mu on real data.
@@ -81,7 +84,6 @@ def init_salt2mu_realdata(
             - maxprob: Maximum probability ratio
     """
     index = "MASTER"
-    directory = "realdata_files"
 
     if debug:
         index = "DEBUG"
@@ -114,23 +116,6 @@ def init_salt2mu_realdata(
     )
 
     return real_data.salt2mu_results
-
-
-def set_numpy_threads(n_threads: int = 4) -> None:
-    """
-    Set number of threads for numpy operations.
-
-    Must be called BEFORE importing numpy to have effect. Sets environment
-    variables for various BLAS implementations.
-
-    Args:
-        n_threads: Number of threads to use for linear algebra operations.
-    """
-    os.environ["OMP_NUM_THREADS"] = str(n_threads)
-    os.environ["OPENBLAS_NUM_THREADS"] = str(n_threads)
-    os.environ["MKL_NUM_THREADS"] = str(n_threads)
-    os.environ["VECLIB_MAXIMUM_THREADS"] = str(n_threads)
-    os.environ["NUMEXPR_NUM_THREADS"] = str(n_threads)
 
 
 def pconv(

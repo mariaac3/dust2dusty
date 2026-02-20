@@ -40,24 +40,18 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from dust2dusty.utils import (
-    cmd_exe,
-    generate_split_array,
-    norm_hist_to_data,
-    pconv,
-    set_numpy_threads,
-)
-
-# Call BEFORE importing numpy
-set_numpy_threads(4)
-
-
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
 from dust2dusty.log import add_file_handler, get_logger
 from dust2dusty.salt2mu import SALT2mu
+from dust2dusty.utils import (
+    cmd_exe,
+    generate_split_array,
+    norm_hist_to_data,
+    pconv,
+)
 
 if TYPE_CHECKING:
     from dust2dusty.cli import Config
@@ -331,9 +325,9 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         - 4: Implements randomseed option (default for production)
     """
     optmask = 4
-    directory = "worker_files"
-    if _WORKER_DEBUGFLAG:
-        optmask = 1
+    directory = "worker_salt2mu_files"
+    # if _WORKER_DEBUGFLAG:
+    #     optmask = 1
 
     outdir = Path(_CONFIG.outdir)
     subprocess_salt2mu_res = outdir / f"{directory}/{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_RES.DAT"
@@ -341,6 +335,9 @@ def init_salt2mu_worker_connection() -> SALT2mu:
 
     genpdf_crosstalk_file = outdir / f"{directory}/{_WORKER_INDEX:02d}_GENPDF_PYTHONCROSSTALK.DAT"
     genpdf_crosstalk_file.touch()
+
+    log_dir = outdir / "logs"
+    log_dir.mkdir(exist_ok=True)
 
     subprocess_salt2mu_log = (
         outdir / f"{directory}/{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_LOG.STDOUT"
@@ -367,6 +364,7 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         subprocess_salt2mu_res,
         subprocess_salt2mu_log,
         debug=_WORKER_DEBUGFLAG,
+        log_dir=log_dir,
     )
 
     return connection
@@ -435,6 +433,13 @@ def compute_and_sum_loglikelihoods(
     )
 
     # Intrinsic scatter
+    logger.debug(
+        f"real sigint, sim sigint, real sigint error: "
+        f"{_WORKER_REALDATA_SALT2MU_RESULTS['sigint']}, "
+        f"{_WORKER_SALT2MU_CONNECTION.salt2mu_results['sigint']}, "
+        f"{_WORKER_REALDATA_SALT2MU_RESULTS['siginterr']}"
+    )
+
     ll_dict["sigint"] = (
         -0.5
         * (
@@ -457,6 +462,9 @@ def compute_and_sum_loglikelihoods(
             datacount_dict[k + "_hist"] = datacount
             simcount_dict[k + "_hist"] = simcount
             poisson_dict[k + "_hist"] = poisson_err
+            logger.debug(
+                f"   - {k}: ({datacount} (data) -  {simcount} (sim))**2 / {poisson_err}**2 = {ll_dict[k + '_hist']}"
+            )
 
     for k in ["low", "high"]:
         mask = inparr["nevt_" + k][0] > 0
@@ -524,6 +532,15 @@ def compute_and_sum_loglikelihoods(
             dict(poisson_dict),
         )
 
+    logger.debug(
+        "Likelihood computation: \n"
+        + "\n".join(
+            [
+                f" - LL {k} = {ll_dict[k]} for Ndata = {datacount_dict[k]} and Nsim={simcount_dict[k]}"
+                for k in ll_dict
+            ]
+        )
+    )
     return float(sum(ll_dict.values()))
 
 
@@ -639,7 +656,10 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
     ll = log_likelihood(theta, **kwargs)
     logger.debug(f"   LogLik = {ll}")
 
-    logger.debug(f"\n#### END OF ITERATION  {_WORKER_SALT2MU_CONNECTION.iter - 1} ####n\n")
+    logger.debug(f"\n#### END OF ITERATION  {_WORKER_SALT2MU_CONNECTION.iter} ####n\n")
+
+    # Increase iteration number
+    _WORKER_SALT2MU_CONNECTION.iter += 1
     return lp + ll
 
 

@@ -245,7 +245,7 @@ def create_output_directories(outdir: str, logger: logging.Logger, force: bool =
         "chains",
         "logs",
         "realdata_files",
-        "worker_files",
+        "worker_salt2mu_files",
     ]
     for subdir in required_subdirs:
         subdir_path = outdir / subdir
@@ -520,14 +520,6 @@ def main() -> int:
             sys.exit(0)
 
         # Full MCMC run
-        logger.info("=" * 60)
-        logger.info("Starting MCMC sampling...")
-        logger.info(f"  Walkers: {nwalkers}")
-        logger.info(f"  Dimensions: {ndim}")
-        logger.info(f"  Parameters: {', '.join(config.inp_params)}")
-        logger.info("=" * 60 + "\n")
-        logger.debug("DEBUG MODE ON")
-
         MCMC(
             config,
             pos,

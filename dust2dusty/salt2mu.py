@@ -71,11 +71,13 @@ class SALT2mu:
     def __init__(
         self,
         command: str,
-        pdf_crosstalk_file: Path,
+        genpdf_crosstalk_file: Path,
         salt2mu_out: Path,
-        log_out: Path,
+        salt2mu_log_out: Path,
         is_realdata: bool = False,
         debug: bool = False,
+        timeout=600,
+        log_dir: Path | None = None,
     ) -> None:
         """
         Initialize SALT2mu connection.
@@ -94,9 +96,7 @@ class SALT2mu:
             - If is_realdata=False: Launches SALT2mu.exe subprocess
         """
         # Get walker ID from pdf_crosstalk_file filename for walker-specific logging
-        walker_id = pdf_crosstalk_file.name.split("_")[0]
-        # Derive log directory from crosstalk_file path (outdir/worker_files -> outdir/logs)
-        log_dir = str(pdf_crosstalk_file.parent.parent / "logs")
+        walker_id = genpdf_crosstalk_file.name.split("_")[0]
 
         if is_realdata:
             self.logger = logger
@@ -106,47 +106,46 @@ class SALT2mu:
             )
 
         self.iter: int = 0
+        self.timeout: int = timeout
         self.debug: bool = debug
         self.ready_enditer: str = "Enter expected ITERATION number"
         self.done: str = "Graceful Program Exit. Bye."
         self.initready: str = "Finished SUBPROCESS_INIT"
-        self.pdf_crosstalk_file = open(pdf_crosstalk_file, "w")
+        self.genpdf_crosstalk_file = open(genpdf_crosstalk_file, "w")
         self.SALT2muoutputs = open(salt2mu_out)
 
         self.command: str = command % (
-            pdf_crosstalk_file.absolute(),
+            genpdf_crosstalk_file.absolute(),
             salt2mu_out.absolute(),
-            log_out.absolute(),
+            salt2mu_log_out.absolute(),
         )
 
-        self.logger.info("Init SALT2mu instance. ")
-        self.logger.info("## ================================== ##")
-        self.logger.info(f"Command:\n {self.command}")
-        self.logger.info(f"pdf_crosstalk_file: {pdf_crosstalk_file}")
-        self.logger.debug("DEBUG MODE ON")
+        self.logger.info("===================== STARTS SALT2MU INSTANCE =====================\n")
+        self.logger.info(f"  Command:\n {self.command} \n")
+        self.logger.info(f"  GENPDF PYTHON CROSSTALK FILE: {genpdf_crosstalk_file}")
+        self.logger.info(f"  SALT2MU RES FILE: {salt2mu_out}")
+        self.logger.info(f"  SALT2MU LOG FILE: {salt2mu_log_out}")
+        self.logger.debug("  WARNING => DEBUG MODE ON")
 
         self.salt2mu_results: dict[str, Any] = {}
 
         if is_realdata:
-            if self.debug:
-                self.command = self.command + " write_yaml=1"
             self.iter = -9  # Default value for REAL DATA
-            self.logger.info("Running realdata=True")
-            self.logger.debug("\n## ============== RUN SALT2MU ON REAL DATA ================= ##")
+            self.logger.info("\n ---------- RUN SALT2MU ON REAL DATA ---------- ##")
 
             with (
                 nullcontext()
                 if self.debug
-                else open(log_out.parent / "REALDATA_SALT2MU_LOG.log", "w")
+                else open(salt2mu_log_out.parent / "REALDATA_SALT2MU_LOG.log", "w")
             ) as stdout:
                 subprocess.run(self.command, shell=True, stdout=stdout)
             self.getData()
-            self.logger.debug(
-                "## ===================== END REAL DATA RUN ======================= ##\n"
+            self.logger.info(
+                "\n =====================  END REAL DATA RUN ===================== \n\n"
             )
 
         else:
-            self.logger.info("===================== INIT SALT2mu PROCESS =====================")
+            self.logger.info("---------- INIT SALT2mu PROCESS ----------")
             start_time = time.time()
             self.process = subprocess.Popen(
                 self.command,
@@ -158,9 +157,7 @@ class SALT2mu:
             )
             self.wait_until_text_in_output(self.ready_enditer)
             self.logger.info(
-                "===================== "
-                f"SALT2mu PROCESS initialized in {time.time() - start_time} seconds"
-                " ====================="
+                f"\n## ===================== SALT2MU PROCESS INITIALIZED IN {time.time() - start_time:.0f} SECONDS ===================== ##\n\n"
             )
 
     def quit(self) -> None:
@@ -172,15 +169,14 @@ class SALT2mu:
         """
         self.process.stdin.write("-1\n")
         for stdout_line in iter(self.process.stdout.readline, ""):
-            self.logger.info(stdout_line)
+            self.logger.info(">>S2MU>> " + stdout_line)
 
-    def wait_until_text_in_output(self, expected_text: str, timeout: int = 600) -> None:
+    def wait_until_text_in_output(self, expected_text: str) -> None:
         """
         Wait for specific text to appear in subprocess stdout.
 
         Args:
             expected_text: Text string to search for in output.
-            timeout: Maximum seconds to wait before raising TimeoutError.
 
         Raises:
             TimeoutError: If expected_text not found within timeout period.
@@ -188,12 +184,12 @@ class SALT2mu:
         start = time.time()
 
         for line in iter(self.process.stdout.readline, ""):
-            self.logger.debug(line.strip())
+            self.logger.debug(">>S2MU>> " + line.strip())
             if expected_text in line:
                 self.logger.debug(f"FOUND '{expected_text}' => STOP WAITING")
                 break
 
-            if time.time() - start > timeout:
+            if time.time() - start > self.timeout:
                 raise TimeoutError(f"Timeout waiting for '{expected_text}'")
 
     def iterate(
@@ -219,11 +215,10 @@ class SALT2mu:
         self.write_iterbegin()
 
         ### Write PDF file with proposed "theta" parameters
-        self.logger.info(f"\n\n-- Write PDF file for iteration: {self.iter} --\n")
+        self.logger.debug(f"\n----- Write PDF file for iteration: {self.iter} -----\n")
 
         for key in config.inp_params:
             key_parameter_values = theta[theta_index_dic[key][0] : theta_index_dic[key][-1] + 1]
-            self.logger.info(f"{key} params = {key_parameter_values}")
 
             arr: list[NDArray[np.float64]] = []
             if key not in ["beta", "alpha"]:
@@ -236,9 +231,6 @@ class SALT2mu:
                                 *spec["args"]
                             )
                         )
-            self.logger.debug(f"{key}")
-            self.logger.debug(f"{config.paramshapesdict[key]}")
-            self.logger.debug(f"{config.splitdict}")
 
             self.write_generic_PDF(
                 key,
@@ -250,20 +242,21 @@ class SALT2mu:
                 arr,
             )
         self.write_iterend()
+        self.genpdf_crosstalk_file.flush()
         ### END WRITE PDF
 
-        ### Run SALT2mu on PDF file and wait for done
-        self.logger.debug(f"\n-- Running SALT2mu iteration {self.iter} --\n")
+        ### RUN SALT2mu on PDF file and wait for done
+        self.logger.debug(f"\n----- Running SALT2mu iteration {self.iter} -----\n")
 
         self.process.stdin.write(f"{self.iter}\n")
         self.process.stdin.flush()
         self.wait_until_text_in_output(self.ready_enditer)  # wait SALT2mu execution
+        ### END RUN SALT2mu
 
         ### Read the data
         self.data = self.getData()
         if last:
             self.quit()
-        self.iter += 1
 
     def getData(self) -> bool:
         """
@@ -288,9 +281,10 @@ class SALT2mu:
         data_lines = []
         for l in lines:
             if "ITERATION" in l:
+                iter = int(l.split(":")[-1])
                 if int(l.split(":")[-1]) != self.iter:
                     raise RuntimeError(
-                        "SALT2mu output iteration does not match expected iteration."
+                        f"SALT2mu output iteration does not match expected iteration. Seek {self.iter} found {iter}"
                     )
             if "+-" in l:
                 parts = l.split("=")[1].split()
@@ -300,6 +294,8 @@ class SALT2mu:
                     k = "beta"
                 elif "sigint" in l:
                     k = "sigint"
+                else:
+                    continue
                 self.salt2mu_results[k] = float(parts[0])
                 self.salt2mu_results[k + "err"] = float(parts[2])
             elif "MAXPROB_RATIO" in l:
@@ -394,10 +390,10 @@ class SALT2mu:
         Args:
             names: List of variable names.
         """
-        self.pdf_crosstalk_file.write("VARNAMES:")
+        self.genpdf_crosstalk_file.write("VARNAMES:")
         for name in names:
-            self.pdf_crosstalk_file.write(" " + name)
-        self.pdf_crosstalk_file.write(" PROB\n")
+            self.genpdf_crosstalk_file.write(" " + name)
+        self.genpdf_crosstalk_file.write(" PROB\n")
 
     def writegenericheader(self, inp: str, varnames: list[str]) -> None:
         """
@@ -411,10 +407,10 @@ class SALT2mu:
         Side Effects:
             Writes "VARNAMES: inp varname1 varname2 ... PROB\\n" to crosstalk file.
         """
-        self.pdf_crosstalk_file.write(f"VARNAMES: {inp}")
+        self.genpdf_crosstalk_file.write(f"VARNAMES: {inp}")
         for name in varnames:
-            self.pdf_crosstalk_file.write(" " + name)
-        self.pdf_crosstalk_file.write(" PROB \n")
+            self.genpdf_crosstalk_file.write(" " + name)
+        self.genpdf_crosstalk_file.write(" PROB \n")
 
     def write3Dprobs(
         self,
@@ -438,7 +434,7 @@ class SALT2mu:
         bigstr = ""
         for a, p in zip(arr, probs):
             bigstr += "PDF: %.3f %.2f %.2f %.3f\n" % (a, z, mass, p)
-        self.pdf_crosstalk_file.write(bigstr)
+        self.genpdf_crosstalk_file.write(bigstr)
 
     def write2Dprobs(
         self, arr: NDArray[np.float64], mass: float, probs: NDArray[np.float64]
@@ -457,7 +453,7 @@ class SALT2mu:
         bigstr = ""
         for a, p in zip(arr, probs):
             bigstr += "PDF: %.3f %.2f %.3f\n" % (a, mass, p)
-        self.pdf_crosstalk_file.write(bigstr)
+        self.genpdf_crosstalk_file.write(bigstr)
 
     def write1Dprobs(self, arr: NDArray[np.float64], probs: NDArray[np.float64]) -> None:
         """
@@ -474,7 +470,7 @@ class SALT2mu:
         for a, p in zip(arr, probs):
             bigstr += "PDF: %.3f %.3f\n" % (a, p)
         bigstr += "\n"
-        self.pdf_crosstalk_file.write(bigstr)
+        self.genpdf_crosstalk_file.write(bigstr)
 
     def write_iterbegin(self) -> None:
         """
@@ -484,10 +480,11 @@ class SALT2mu:
             - Truncates crosstalk file to zero length
             - Writes "ITERATION_BEGIN: N" where N = self.iter
         """
-        self.pdf_crosstalk_file.truncate(0)
-        self.pdf_crosstalk_file.seek(0)
-        self.pdf_crosstalk_file.write("ITERATION_BEGIN: %d\n" % self.iter)
-        self.pdf_crosstalk_file.flush()
+        ### Clean PDF file
+        self.genpdf_crosstalk_file.seek(0)
+        self.genpdf_crosstalk_file.truncate()
+
+        self.genpdf_crosstalk_file.write("ITERATION_BEGIN: %d\n" % self.iter)
 
     def write_iterend(self) -> None:
         """
@@ -497,8 +494,7 @@ class SALT2mu:
             - Writes "ITERATION_END: N" where N = self.iter
             - Flushes crosstalk file to ensure SALT2mu can read it
         """
-        self.pdf_crosstalk_file.write("ITERATION_END: %d\n" % self.iter)
-        self.pdf_crosstalk_file.flush()
+        self.genpdf_crosstalk_file.write("ITERATION_END: %d\n" % self.iter)
 
     def write_SALT2(self, name: str, params: list[float]) -> None:
         """
@@ -516,17 +512,17 @@ class SALT2mu:
             GENRANGE is .1-.2 for alpha, .4-3 for beta.
         """
         for _ in range(3):
-            self.pdf_crosstalk_file.write("\n")
+            self.genpdf_crosstalk_file.write("\n")
         mean = params[0]
         std = params[1]
-        self.pdf_crosstalk_file.write(f"GENPEAK_SIM_{name}: {mean} \n")
-        self.pdf_crosstalk_file.write(f"GENSIGMA_SIM_{name}: {std} {std} \n")
+        self.genpdf_crosstalk_file.write(f"GENPEAK_SIM_{name}: {mean} \n")
+        self.genpdf_crosstalk_file.write(f"GENSIGMA_SIM_{name}: {std} {std} \n")
         if name == "alpha":
-            self.pdf_crosstalk_file.write(f"GENRANGE_SIM_{name}: .1 .2 \n")
+            self.genpdf_crosstalk_file.write(f"GENRANGE_SIM_{name}: .1 .2 \n")
         else:
-            self.pdf_crosstalk_file.write(f"GENRANGE_SIM_{name}: .4 3 \n")
+            self.genpdf_crosstalk_file.write(f"GENRANGE_SIM_{name}: .4 3 \n")
         for _ in range(3):
-            self.pdf_crosstalk_file.write("\n")
+            self.genpdf_crosstalk_file.write("\n")
 
     def write_1D_PDF(self, varname: str, params: list[float], arr: NDArray[np.float64]) -> None:
         """
@@ -668,7 +664,7 @@ class SALT2mu:
                             if inp == "RV":
                                 probs[arrs < 0.4] = 0
                             self.write3Dprobs(arrs, sp1, sp2, probs)
-        self.pdf_crosstalk_file.write("\n")
+        self.genpdf_crosstalk_file.write("\n")
         return None
 
     def shape_assigner(
