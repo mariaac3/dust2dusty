@@ -154,6 +154,7 @@ class Config:
     DEBUG_FULL: bool = False
     NOWEIGHT: bool = False
     VERBOSE: bool = False
+    SAMPLER: str = "emcee"
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any], args: argparse.Namespace) -> Config:
@@ -190,6 +191,7 @@ class Config:
             NOWEIGHT=args.NOWEIGHT,
             USE_MPI=args.USE_MPI,
             VERBOSE=args.VERBOSE,
+            SAMPLER=args.SAMPLER,
         )
 
     def __post_init__(self):
@@ -404,6 +406,14 @@ def get_args() -> argparse.Namespace:
         help="Remove and recreate output directory if it already exists",
     )
 
+    parser.add_argument(
+        "--SAMPLER",
+        type=str,
+        default="emcee",
+        choices=["emcee", "zeus", "nautilus"],
+        help="MCMC sampler to use: 'emcee' (default), 'zeus', or 'nautilus'",
+    )
+
     return parser.parse_args()
 
 
@@ -528,6 +538,7 @@ def main() -> int:
             realdata_salt2mu_results,
             debug=debug,
             debug_logging=debug_logging,
+            sampler=config.SAMPLER,
         )
 
         logger.info("DUST2DUST(Y) complete.")
