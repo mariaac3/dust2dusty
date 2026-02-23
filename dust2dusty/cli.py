@@ -155,6 +155,7 @@ class Config:
     NOWEIGHT: bool = False
     VERBOSE: bool = False
     SAMPLER: str = "emcee"
+    NWALKERS: int | None = None
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any], args: argparse.Namespace) -> Config:
@@ -192,6 +193,7 @@ class Config:
             USE_MPI=args.USE_MPI,
             VERBOSE=args.VERBOSE,
             SAMPLER=args.SAMPLER,
+            NWALKERS=args.NWALKERS,
         )
 
     def __post_init__(self):
@@ -414,6 +416,13 @@ def get_args() -> argparse.Namespace:
         help="MCMC sampler to use: 'emcee' (default), 'zeus', or 'nautilus'",
     )
 
+    parser.add_argument(
+        "--NWALKERS",
+        type=int,
+        default=None,
+        help="Number of MCMC walkers for emcee/zeus (default: 2 * ndim)",
+    )
+
     return parser.parse_args()
 
 
@@ -515,6 +524,25 @@ def main() -> int:
             config.PARAMETER_OVERRIDES,
             walkfactor=2,
         )
+
+        if config.NWALKERS is not None and config.SAMPLER in ("emcee", "zeus"):
+            if config.NWALKERS < 2 * ndim:
+                logger.warning(
+                    f"--NWALKERS={config.NWALKERS} is less than 2*ndim={2*ndim}. "
+                    f"Using {2*ndim} walkers instead."
+                )
+                config.NWALKERS = 2 * ndim
+            walkfactor = config.NWALKERS // ndim
+            pos, nwalkers, ndim = input_cleaner(
+                config.inp_params,
+                config.paramshapesdict,
+                config.splitdict,
+                config.DISTRIBUTION_PARAMETERS,
+                config.parameter_initialization,
+                config.PARAMETER_OVERRIDES,
+                walkfactor=walkfactor,
+            )
+            logger.info(f"Walker count overridden to {nwalkers} (--NWALKERS={config.NWALKERS})")
 
         # Test run mode - single likelihood evaluation (no MPI needed)
         if config.TEST_RUN:
