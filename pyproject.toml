@@ -69,7 +69,7 @@ Issues = "https://github.com/blc56/dust2dusty/issues"
 dust2dusty = "dust2dusty.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["./src"]
 
 [tool.setuptools.package-data]
 dust2dusty = ["py.typed"]

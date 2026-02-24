@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import emcee
@@ -37,7 +38,7 @@ def MCMC(
     max_iterations: int = 100000,
     convergence_check_interval: int = 100,
     sampler: str = "emcee",
-) -> emcee.EnsembleSampler | Any | None:
+) -> None:
     """
     Run MCMC sampling using emcee, zeus, or nautilus.
 
@@ -102,15 +103,15 @@ def MCMC(
     # worker-wait only applies to emcee/zeus.
     is_worker = config is None
 
-    if sampler != "nautilus" and (is_worker or (config is not None and config.USE_MPI)):
+    if is_worker or config.USE_MPI:
         from mpi4py import MPI
 
         comm = MPI.COMM_WORLD
 
-    if sampler != "nautilus" and is_worker:
+    # WORKERS #
+    if is_worker:
         # Set up basic logging for this worker process
         setup_logging(debug=False)
-
         # Receive initialization data from master
         worker_config, worker_realdata, worker_debug = comm.bcast(None, root=0)
         sys.stdout.flush()
@@ -120,58 +121,32 @@ def MCMC(
             pool.wait()
         sys.exit(0)
 
-    # Build the chain filename stem (used by both samplers)
-    chain_stem = config.data_input.split(".")[0].split("/")[-1]
-    chain_filename = config.outdir + "chains/" + chain_stem + "-chains.h5"
+    # MASTER #
 
-    # Master process continues with full MCMC setup
-    if sampler == "emcee":
-        if debug:
-            backend = None
-        else:
-            backend = emcee.backends.HDFBackend(chain_filename)
-            backend.reset(nwalkers, ndim)
-            logger.debug(f"Chain storage initialized: {chain_filename}")
-
-            # Track autocorrelation time history
-            autocorr_history = np.empty(max_iterations // convergence_check_interval)
-            autocorr_index = 0
-            old_tau: float | NDArray = np.inf
-
+    # Build the chain file (used by both samplers)
+    chain_file = Path(
+        config.outdir + "chains/" + config.data_input.split(".")[0].split("/")[-1] + "-chains.h5"
+    )
+    # Show log info
     logger.info("=" * 60)
     logger.info(f"Starting MCMC sampling ({sampler})...")
     logger.info(f"  Dimensions: {ndim}")
     logger.info(f"  Parameters: {', '.join(config.inp_params)}")
+    if not debug:
+        logger.info(f"  Chain file: {chain_file}")
     if sampler in ("emcee", "zeus"):
         logger.info(f"  Walkers: {nwalkers}")
     logger.debug("DEBUG MODE ON")
     logger.info("=" * 60 + "\n")
 
-    # ------------------------------------------------------------------
-    # Branch: nautilus — manages its own pool, bypasses schwimmbad
-    # ------------------------------------------------------------------
-    if sampler == "nautilus":
-        _run_nautilus(
-            config=config,
-            realdata_salt2mu_results=realdata_salt2mu_results,
-            ndim=ndim,
-            debug=debug,
-            debug_logging=debug_logging,
-            chain_stem=chain_stem,
-            chain_filename=chain_filename,
-            max_iterations=max_iterations,
-        )
-        return None
-
-    # ------------------------------------------------------------------
-    # emcee / zeus: set up schwimmbad pool and run
-    # ------------------------------------------------------------------
+    # Master send instruction to worker for init
     worker_debug = debug or debug_logging
     if config.USE_MPI:
         n_proc = comm.Get_size()
         # Broadcast initialization data to all workers BEFORE creating pool
         comm.bcast((config, realdata_salt2mu_results, worker_debug), root=0)
         pool = schwimmbad.MPIPool()
+    # Not using MPI
     else:
         pool = schwimmbad.SerialPool()
         _init_worker(config, realdata_salt2mu_results, worker_debug)
@@ -179,9 +154,25 @@ def MCMC(
 
     with pool:
         # ------------------------------------------------------------------
+        # Branch: nautilus
+        # ------------------------------------------------------------------
+        if sampler == "nautilus":
+            _run_nautilus(
+                config=config,
+                realdata_salt2mu_results=realdata_salt2mu_results,
+                ndim=ndim,
+                pool=pool,
+                n_proc=n_proc,
+                debug=debug,
+                debug_logging=debug_logging,
+                chain_file=chain_file,
+                max_iterations=max_iterations,
+            )
+
+        # ------------------------------------------------------------------
         # Branch: emcee
         # ------------------------------------------------------------------
-        if sampler == "emcee":
+        elif sampler == "emcee":
             _run_emcee(
                 config=config,
                 pos=pos,
@@ -189,9 +180,8 @@ def MCMC(
                 ndim=ndim,
                 pool=pool,
                 n_proc=n_proc,
-                backend=backend,
                 debug=debug,
-                chain_stem=chain_stem,
+                chain_file=chain_file,
                 max_iterations=max_iterations,
                 convergence_check_interval=convergence_check_interval,
                 autocorr_history=autocorr_history if not debug else None,
@@ -202,7 +192,7 @@ def MCMC(
         # ------------------------------------------------------------------
         # Branch: zeus
         # ------------------------------------------------------------------
-        else:
+        elif sampler == "zeus":
             _run_zeus(
                 config=config,
                 pos=pos,
@@ -211,18 +201,22 @@ def MCMC(
                 pool=pool,
                 n_proc=n_proc,
                 debug=debug,
-                chain_stem=chain_stem,
-                chain_filename=chain_filename,
+                chain_file=chain_file,
                 max_iterations=max_iterations,
                 convergence_check_interval=convergence_check_interval,
             )
+        else:
+            raise ValueError(f"Unknown sampler '{sampler}'. Choose 'emcee', 'zeus', or 'nautilus'.")
 
+        # Shutting down
+        cleanup_workers(pool, n_proc, logger)
     return None
 
 
 # ---------------------------------------------------------------------------
 # emcee implementation
 # ---------------------------------------------------------------------------
+
 
 def _run_emcee(
     config,
@@ -231,18 +225,29 @@ def _run_emcee(
     ndim,
     pool,
     n_proc,
-    backend,
     debug,
-    chain_stem,
+    chain_file,
     max_iterations,
     convergence_check_interval,
     autocorr_history,
     autocorr_index,
     old_tau,
 ):
-    sampler_obj = emcee.EnsembleSampler(
-        nwalkers, ndim, log_probability, pool=pool, backend=backend
-    )
+    # Create backend file to save chain progress
+    if debug:
+        backend = None
+    else:
+        backend = emcee.backends.HDFBackend(chain_file)
+        backend.reset(nwalkers, ndim)
+        logger.debug(f"Chain storage initialized: {chain_file}")
+
+        # Track autocorrelation time history
+        autocorr_history = np.empty(max_iterations // convergence_check_interval)
+        autocorr_index = 0
+        old_tau: float | NDArray = np.inf
+
+    # Init sampler
+    sampler_obj = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, backend=backend)
 
     if debug:
         sampler_obj.run_mcmc(pos, 3)
@@ -253,9 +258,7 @@ def _run_emcee(
             config.splitdict,
             config.DISTRIBUTION_PARAMETERS,
         )
-        debug_chain_file = (
-            config.outdir + "chains/" + chain_stem + "-debug_chains.txt"
-        )
+        debug_chain_file = chain_file.with_suffix("-debug_chains.txt")
         write_chain_to_text(
             sampler_obj.get_chain(),
             sampler_obj.get_log_prob(),
@@ -264,14 +267,10 @@ def _run_emcee(
         )
         logger.info(f"Debug chains saved to: {debug_chain_file}")
         logger.info("DEBUG RUN COMPLETE (emcee, 3 steps).")
-
-        logger.info("Shutting down SALT2mu subprocesses...")
-        list(pool.map(cleanup_worker, range(n_proc)))
-        logger.info("All SALT2mu subprocesses terminated.")
         return
 
     # Run with convergence monitoring
-    for _ in sampler_obj.sample(pos, iterations=max_iterations, progress=True):
+    for _ in sampler_obj.sample(pos, iterations=max_iterations, progress=False):
         if sampler_obj.iteration % convergence_check_interval:
             continue
 
@@ -305,19 +304,23 @@ def _run_emcee(
             old_tau = tau
 
         except emcee.autocorr.AutocorrError:
-            logger.debug(
-                f"\nIteration {sampler_obj.iteration}: Chain too short for tau estimate"
-            )
+            logger.debug(f"\nIteration {sampler_obj.iteration}: Chain too short for tau estimate")
 
     # Save autocorrelation history
     autocorr_filename = config.outdir + "chains/" + chain_stem + "-autocorr.npz"
     np.savez(autocorr_filename, autocorr=autocorr_history[:autocorr_index])
     logger.info(f"Autocorrelation history saved to: {autocorr_filename}")
 
-    _finalize_emcee(config, sampler_obj, chain_stem, nwalkers, n_proc, pool)
+    _finalize_emcee(config, sampler_obj, chain_file, nwalkers)
+    return None
 
 
-def _finalize_emcee(config, sampler_obj, chain_stem, nwalkers, n_proc, pool):
+def _finalize_emcee(
+    config,
+    sampler_obj,
+    chain_file,
+    nwalkers,
+):
     logger.info("\n" + "=" * 60)
     logger.info("MCMC COMPLETE")
     logger.info("=" * 60)
@@ -328,14 +331,12 @@ def _finalize_emcee(config, sampler_obj, chain_stem, nwalkers, n_proc, pool):
         logger.info(f"Final autocorrelation time: {tau}")
         logger.info(f"Recommended burn-in: {burnin} steps")
         logger.info(f"Recommended thinning: {thin} steps")
-        logger.info(
-            f"Effective samples: ~{sampler_obj.iteration * nwalkers / np.mean(tau):.0f}"
-        )
+        logger.info(f"Effective samples: ~{sampler_obj.iteration * nwalkers / np.mean(tau):.0f}")
 
         flat_samples = sampler_obj.get_chain(discard=burnin, thin=thin, flat=True)
         logger.info(f"Shape of thinned samples: {flat_samples.shape}")
 
-        thinned_filename = config.outdir + "chains/" + chain_stem + "-samples_thinned.npz"
+        thinned_filename = chain_file.with_suffix("-samples_thinned.npz")
         np.savez(thinned_filename, samples=flat_samples, tau=tau, burnin=burnin, thin=thin)
         logger.info(f"Thinned samples saved to: {thinned_filename}")
 
@@ -343,15 +344,13 @@ def _finalize_emcee(config, sampler_obj, chain_stem, nwalkers, n_proc, pool):
         logger.warning("Could not compute final autocorrelation time.")
         logger.warning("Chain may be too short for reliable estimates.")
         logger.warning("Consider running longer or checking for convergence issues.")
-
-    logger.info("Shutting down SALT2mu subprocesses...")
-    list(pool.map(cleanup_worker, range(n_proc)))
-    logger.info("All SALT2mu subprocesses terminated.")
+    return None
 
 
 # ---------------------------------------------------------------------------
 # zeus implementation
 # ---------------------------------------------------------------------------
+
 
 def _run_zeus(
     config,
@@ -361,22 +360,17 @@ def _run_zeus(
     pool,
     n_proc,
     debug,
-    chain_stem,
-    chain_filename,
+    chain_file,
     max_iterations,
     convergence_check_interval,
 ):
     try:
         import zeus
     except ImportError:
-        logger.error(
-            "zeus is not installed. Install it with: pip install zeus-mcmc"
-        )
+        logger.error("zeus is not installed. Install it with: pip install zeus-mcmc")
         sys.exit(1)
 
-    sampler_obj = zeus.EnsembleSampler(
-        nwalkers, ndim, log_probability, pool=pool, verbose=False
-    )
+    sampler_obj = zeus.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, verbose=False)
 
     if debug:
         sampler_obj.run_mcmc(pos, 3)
@@ -387,19 +381,13 @@ def _run_zeus(
             config.splitdict,
             config.DISTRIBUTION_PARAMETERS,
         )
-        debug_chain_file = (
-            config.outdir + "chains/" + chain_stem + "-debug_chains.txt"
-        )
+        debug_chain_file = chain_file.with_suffix("-debug_chains.txt")
         # zeus get_chain returns shape (nsteps, nwalkers, ndim)
         chain = sampler_obj.get_chain()
         log_prob = sampler_obj.get_log_prob()
         write_chain_to_text(chain, log_prob, param_names, debug_chain_file)
         logger.info(f"Debug chains saved to: {debug_chain_file}")
         logger.info("DEBUG RUN COMPLETE (zeus, 3 steps).")
-
-        logger.info("Shutting down SALT2mu subprocesses...")
-        list(pool.map(cleanup_worker, range(n_proc)))
-        logger.info("All SALT2mu subprocesses terminated.")
         return
 
     # Build callbacks
@@ -413,22 +401,23 @@ def _run_zeus(
         ),
         zeus.callbacks.MinIterCallback(nmin=convergence_check_interval),
         zeus.callbacks.SaveProgressCallback(
-            filename=chain_filename,
+            filename=chain_file,
             ncheck=convergence_check_interval,
         ),
     ]
 
     logger.info(
         f"zeus callbacks: AutocorrelationCallback (ncheck={convergence_check_interval}, "
-        f"dact=0.01, nact=10), SaveProgressCallback -> {chain_filename}"
+        f"dact=0.01, nact=10), SaveProgressCallback -> {chain_file}"
     )
 
     sampler_obj.run_mcmc(pos, max_iterations, callbacks=callbacks, progress=True)
 
-    _finalize_zeus(config, sampler_obj, chain_stem, n_proc, pool)
+    _finalize_zeus(config, sampler_obj, chain_file)
+    return
 
 
-def _finalize_zeus(config, sampler_obj, chain_stem, n_proc, pool):
+def _finalize_zeus(config, sampler_obj, chain_file):
     logger.info("\n" + "=" * 60)
     logger.info("MCMC COMPLETE (zeus)")
     logger.info("=" * 60)
@@ -448,66 +437,43 @@ def _finalize_zeus(config, sampler_obj, chain_stem, n_proc, pool):
         logger.info(f"Recommended thinning: {thin} steps")
         logger.info(f"Shape of thinned samples: {flat_samples.shape}")
 
-        thinned_filename = config.outdir + "chains/" + chain_stem + "-samples_thinned.npz"
+        thinned_file = chain_file.with_suffix("-samples_thinned.npz")
         np.savez(
-            thinned_filename,
+            thinned_file,
             samples=flat_samples,
             act=act,
             burnin=burnin,
             thin=thin,
         )
-        logger.info(f"Thinned samples saved to: {thinned_filename}")
+        logger.info(f"Thinned samples saved to: {thinned_file}")
 
     except Exception as e:
         logger.warning(f"Could not compute final diagnostics: {e}")
         logger.warning("Consider running longer or checking for convergence issues.")
-
-    logger.info("Shutting down SALT2mu subprocesses...")
-    list(pool.map(cleanup_worker, range(n_proc)))
-    logger.info("All SALT2mu subprocesses terminated.")
+    return
 
 
 # ---------------------------------------------------------------------------
 # nautilus implementation
 # ---------------------------------------------------------------------------
 
-def _nautilus_likelihood(theta: NDArray[np.float64]) -> float:
-    """
-    Thin wrapper around log_likelihood for nautilus.
-
-    nautilus calls the likelihood with a plain parameter array sampled from
-    the Prior it manages itself (uniform over the bounds). Because nautilus
-    handles the prior internally, we call log_likelihood (not log_probability)
-    to avoid double-counting the prior.
-
-    For MPI runs, MPIPoolExecutor calls _init_worker via its initializer=
-    argument before servicing any tasks, so the worker state is always ready.
-    """
-    return log_likelihood(theta)
-
 
 def _run_nautilus(
     config,
     realdata_salt2mu_results,
     ndim,
+    pool,
+    n_proc,
     debug,
     debug_logging,
-    chain_stem,
-    chain_filename,
+    chain_file,
     max_iterations,
 ):
     try:
         from nautilus import Prior, Sampler
     except ImportError:
-        logger.error(
-            "nautilus is not installed. Install it with: pip install nautilus-sampler"
-        )
+        logger.error("nautilus is not installed. Install it with: pip install nautilus-sampler")
         sys.exit(1)
-
-    worker_debug = debug or debug_logging
-
-    # Init the master-process worker
-    _init_worker(config, realdata_salt2mu_results, worker_debug)
 
     # Build Prior from parameter bounds
     param_names = pconv(
@@ -520,33 +486,22 @@ def _run_nautilus(
     for name in param_names:
         lo, hi = config.parameter_initialization[name]["bounds"]
         from scipy.stats import uniform as scipy_uniform
+
         prior.add_parameter(name, dist=scipy_uniform(lo, hi - lo))
 
     logger.info(f"nautilus Prior built for {len(param_names)} parameters.")
 
-    # Choose pool for nautilus
-    if config.USE_MPI:
-        from mpi4py.futures import MPIPoolExecutor
-        nautilus_pool = MPIPoolExecutor(
-            initializer=_init_worker,
-            initargs=(config, realdata_salt2mu_results, worker_debug),
-        )
-        logger.info("nautilus using MPIPoolExecutor for parallelism.")
-    else:
-        nautilus_pool = None
-
     sampler_obj = Sampler(
         prior,
-        _nautilus_likelihood,
+        log_likelihood,
         pass_dict=False,
-        pool=nautilus_pool,
-        filepath=chain_filename if not debug else None,
+        pool=pool,
+        filepath=chain_file if not debug else None,
         resume=not debug,
     )
 
     logger.info(
-        f"nautilus Sampler created. "
-        f"Chain file: {chain_filename if not debug else '(none, debug mode)'}"
+        f"nautilus Sampler created. Chain file: {chain_file if not debug else '(none, debug mode)'}"
     )
 
     run_kwargs: dict[str, Any] = {"verbose": True}
@@ -558,21 +513,15 @@ def _run_nautilus(
 
     sampler_obj.run(**run_kwargs)
 
-    if nautilus_pool is not None:
-        nautilus_pool.shutdown()
-
     if debug:
         logger.info("DEBUG RUN COMPLETE (nautilus, 3 likelihood calls).")
-        cleanup_worker()
         return
 
-    _finalize_nautilus(config, sampler_obj, chain_stem)
-
-    # Shut down the master's own SALT2mu subprocess
-    cleanup_worker()
+    _finalize_nautilus(config, sampler_obj, chain_file)
+    return
 
 
-def _finalize_nautilus(config, sampler_obj, chain_stem):
+def _finalize_nautilus(config, sampler_obj, chain_file):
     logger.info("\n" + "=" * 60)
     logger.info("MCMC COMPLETE (nautilus)")
     logger.info("=" * 60)
@@ -583,7 +532,7 @@ def _finalize_nautilus(config, sampler_obj, chain_stem):
         logger.info(f"Posterior samples: {points.shape[0]}")
         logger.info(f"log evidence (ln Z): {sampler_obj.log_z:.3f}")
 
-        thinned_filename = config.outdir + "chains/" + chain_stem + "-samples_thinned.npz"
+        thinned_filename = chain_file.with_suffix("-samples_thinned.npz")
         np.savez(
             thinned_filename,
             samples=points,
@@ -596,3 +545,11 @@ def _finalize_nautilus(config, sampler_obj, chain_stem):
     except Exception as e:
         logger.warning(f"Could not extract posterior samples: {e}")
         logger.warning("Consider running longer or checking for convergence issues.")
+    return
+
+
+def cleanup_workers(pool, n_proc, logger):
+    logger.info("Shutting down SALT2mu subprocesses...")
+    list(pool.map(cleanup_worker, range(n_proc)))
+    logger.info("All SALT2mu subprocesses terminated.")
+    return
