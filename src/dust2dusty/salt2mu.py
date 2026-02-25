@@ -160,7 +160,7 @@ class SALT2mu:
                 f"\n## ===================== SALT2MU PROCESS INITIALIZED IN {time.time() - start_time:.0f} SECONDS ===================== ##\n\n"
             )
 
-    def quit(self) -> None:
+    def close(self) -> None:
         """
         Gracefully terminate the SALT2mu subprocess.
 
@@ -256,7 +256,7 @@ class SALT2mu:
         ### Read the data
         self.data = self.getData()
         if last:
-            self.quit()
+            self.close()
 
     def getData(self) -> bool:
         """

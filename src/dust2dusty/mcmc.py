@@ -95,8 +95,8 @@ def MCMC(
         - Saves thinned/posterior samples to: {outdir}/chains/{data_input}-samples_thinned.npz
     """
     # Validate sampler choice first (before any MPI logic)
-    if sampler not in ("emcee", "zeus", "nautilus"):
-        raise ValueError(f"Unknown sampler '{sampler}'. Choose 'emcee', 'zeus', or 'nautilus'.")
+    if sampler not in ("emcee", "nautilus"):
+        raise ValueError(f"Unknown sampler '{sampler}'. Choose 'emcee' or 'nautilus'.")
 
     # Detect worker vs master before accessing config attributes.
     # Nautilus manages its own MPI workers via MPIPoolExecutor; schwimmbad
@@ -154,7 +154,7 @@ def MCMC(
 
     with pool:
         # ------------------------------------------------------------------
-        # Branch: nautilus
+        # Branch: nautilus (importance sampling + efficient space exploration using NN)
         # ------------------------------------------------------------------
         if sampler == "nautilus":
             _run_nautilus(
@@ -170,7 +170,7 @@ def MCMC(
             )
 
         # ------------------------------------------------------------------
-        # Branch: emcee
+        # Branch: emcee (Nested Sampling)
         # ------------------------------------------------------------------
         elif sampler == "emcee":
             _run_emcee(
@@ -189,24 +189,8 @@ def MCMC(
                 old_tau=old_tau if not debug else np.inf,
             )
 
-        # ------------------------------------------------------------------
-        # Branch: zeus
-        # ------------------------------------------------------------------
-        elif sampler == "zeus":
-            _run_zeus(
-                config=config,
-                pos=pos,
-                nwalkers=nwalkers,
-                ndim=ndim,
-                pool=pool,
-                n_proc=n_proc,
-                debug=debug,
-                chain_file=chain_file,
-                max_iterations=max_iterations,
-                convergence_check_interval=convergence_check_interval,
-            )
         else:
-            raise ValueError(f"Unknown sampler '{sampler}'. Choose 'emcee', 'zeus', or 'nautilus'.")
+            raise ValueError(f"Unknown sampler '{sampler}'. Choose 'emcee' or 'nautilus'.")
 
         # Shutting down
         cleanup_workers(pool, n_proc, logger)
@@ -258,7 +242,10 @@ def _run_emcee(
             config.splitdict,
             config.DISTRIBUTION_PARAMETERS,
         )
-        debug_chain_file = chain_file.with_suffix("-debug_chains.txt")
+        debug_chain_file = chain_file.with_name(chain_file.stem + "-debug_chains").with_suffix(
+            ".txt"
+        )
+
         write_chain_to_text(
             sampler_obj.get_chain(),
             sampler_obj.get_log_prob(),
@@ -307,7 +294,7 @@ def _run_emcee(
             logger.debug(f"\nIteration {sampler_obj.iteration}: Chain too short for tau estimate")
 
     # Save autocorrelation history
-    autocorr_filename = config.outdir + "chains/" + chain_stem + "-autocorr.npz"
+    autocorr_filename = chain_file.with_name(chain_file.stem + "-autocorr").with_suffix(".npz")
     np.savez(autocorr_filename, autocorr=autocorr_history[:autocorr_index])
     logger.info(f"Autocorrelation history saved to: {autocorr_filename}")
 
@@ -336,7 +323,9 @@ def _finalize_emcee(
         flat_samples = sampler_obj.get_chain(discard=burnin, thin=thin, flat=True)
         logger.info(f"Shape of thinned samples: {flat_samples.shape}")
 
-        thinned_filename = chain_file.with_suffix("-samples_thinned.npz")
+        thinned_filename = chain_file.with_name(chain_file.stem + "-samples_thinned").with_suffix(
+            ".npz"
+        )
         np.savez(thinned_filename, samples=flat_samples, tau=tau, burnin=burnin, thin=thin)
         logger.info(f"Thinned samples saved to: {thinned_filename}")
 
@@ -345,112 +334,6 @@ def _finalize_emcee(
         logger.warning("Chain may be too short for reliable estimates.")
         logger.warning("Consider running longer or checking for convergence issues.")
     return None
-
-
-# ---------------------------------------------------------------------------
-# zeus implementation
-# ---------------------------------------------------------------------------
-
-
-def _run_zeus(
-    config,
-    pos,
-    nwalkers,
-    ndim,
-    pool,
-    n_proc,
-    debug,
-    chain_file,
-    max_iterations,
-    convergence_check_interval,
-):
-    try:
-        import zeus
-    except ImportError:
-        logger.error("zeus is not installed. Install it with: pip install zeus-mcmc")
-        sys.exit(1)
-
-    sampler_obj = zeus.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, verbose=False)
-
-    if debug:
-        sampler_obj.run_mcmc(pos, 3)
-
-        param_names = pconv(
-            config.inp_params,
-            config.paramshapesdict,
-            config.splitdict,
-            config.DISTRIBUTION_PARAMETERS,
-        )
-        debug_chain_file = chain_file.with_suffix("-debug_chains.txt")
-        # zeus get_chain returns shape (nsteps, nwalkers, ndim)
-        chain = sampler_obj.get_chain()
-        log_prob = sampler_obj.get_log_prob()
-        write_chain_to_text(chain, log_prob, param_names, debug_chain_file)
-        logger.info(f"Debug chains saved to: {debug_chain_file}")
-        logger.info("DEBUG RUN COMPLETE (zeus, 3 steps).")
-        return
-
-    # Build callbacks
-    callbacks = [
-        zeus.callbacks.AutocorrelationCallback(
-            ncheck=convergence_check_interval,
-            dact=0.01,
-            nact=10,
-            discard=0.5,
-            trigger=True,
-        ),
-        zeus.callbacks.MinIterCallback(nmin=convergence_check_interval),
-        zeus.callbacks.SaveProgressCallback(
-            filename=chain_file,
-            ncheck=convergence_check_interval,
-        ),
-    ]
-
-    logger.info(
-        f"zeus callbacks: AutocorrelationCallback (ncheck={convergence_check_interval}, "
-        f"dact=0.01, nact=10), SaveProgressCallback -> {chain_file}"
-    )
-
-    sampler_obj.run_mcmc(pos, max_iterations, callbacks=callbacks, progress=True)
-
-    _finalize_zeus(config, sampler_obj, chain_file)
-    return
-
-
-def _finalize_zeus(config, sampler_obj, chain_file):
-    logger.info("\n" + "=" * 60)
-    logger.info("MCMC COMPLETE (zeus)")
-    logger.info("=" * 60)
-
-    try:
-        act = sampler_obj.act  # integrated autocorrelation time per parameter
-        ess = sampler_obj.ess  # effective sample size
-        logger.info(f"Integrated autocorrelation time: {act}")
-        logger.info(f"Effective sample size: {ess}")
-        logger.info(f"Efficiency: {sampler_obj.efficiency:.3f}")
-        logger.info(f"Total log-prob calls: {sampler_obj.ncall}")
-
-        burnin = int(2 * np.max(act))
-        thin = max(1, int(0.5 * np.min(act)))
-        flat_samples = sampler_obj.get_chain(discard=burnin, thin=thin, flat=True)
-        logger.info(f"Recommended burn-in: {burnin} steps")
-        logger.info(f"Recommended thinning: {thin} steps")
-        logger.info(f"Shape of thinned samples: {flat_samples.shape}")
-
-        thinned_file = chain_file.with_suffix("-samples_thinned.npz")
-        np.savez(
-            thinned_file,
-            samples=flat_samples,
-            act=act,
-            burnin=burnin,
-            thin=thin,
-        )
-        logger.info(f"Thinned samples saved to: {thinned_file}")
-
-    except Exception as e:
-        logger.warning(f"Could not compute final diagnostics: {e}")
-        logger.warning("Consider running longer or checking for convergence issues.")
-    return
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +384,7 @@ def _run_nautilus(
     )
 
     logger.info(
-        f"nautilus Sampler created. Chain file: {chain_file if not debug else '(none, debug mode)'}"
+        f"nautilus sampler created. Chain file: {chain_file if not debug else '(none, debug mode)'}"
     )
 
     run_kwargs: dict[str, Any] = {"verbose": True}
@@ -532,7 +415,9 @@ def _finalize_nautilus(config, sampler_obj, chain_file):
         logger.info(f"Posterior samples: {points.shape[0]}")
         logger.info(f"log evidence (ln Z): {sampler_obj.log_z:.3f}")
 
-        thinned_filename = chain_file.with_suffix("-samples_thinned.npz")
+        thinned_filename = chain_file.with_name(chain_file.stem + "-samples_thinned").with_suffix(
+            ".npz"
+        )
         np.savez(
             thinned_filename,
             samples=points,
