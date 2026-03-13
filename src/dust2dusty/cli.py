@@ -210,10 +210,9 @@ def create_output_directories(outdir: str, logger: logging.Logger, force: bool =
 
     Creates the main output directory and required subdirectories:
         - chains: MCMC chain outputs
-        - figures: Diagnostic plots
         - logs: Log files
         - realdata_files: Real data SALT2mu outputs
-        - worker_files: Worker subprocess files
+        - worker_salt2mu_files: Per-worker SALT2mu subprocess files
 
     Args:
         outdir: Path to main output directory (can be relative or absolute).
@@ -221,7 +220,7 @@ def create_output_directories(outdir: str, logger: logging.Logger, force: bool =
         force: If True, remove existing output directory before creating.
 
     Returns:
-        Absolute path to output directory with trailing slash.
+        None.
 
     Raises:
         FileExistsError: If output directory already exists and force is False.

@@ -12,7 +12,7 @@ the SALT2mu.exe executable.
 Modules:
     cli: Command-line interface and Config dataclass.
     dust2dust: Worker-dependent likelihood functions and SALT2mu connection.
-    mcmc: Main MCMC sampling function using emcee.
+    mcmc: Main MCMC sampling function using emcee or nautilus.
     salt2mu: Interface to SALT2mu.exe subprocess.
     log: Shared logging configuration.
     utils: Utility functions for parameter handling and normalization.
@@ -25,14 +25,15 @@ Example Usage:
     Python API::
 
         from dust2dusty import Config, load_config, MCMC
-        from dust2dusty.log import setup_logging
+        from dust2dusty.log import setup_logging, get_logger
         from dust2dusty.utils import init_salt2mu_realdata, input_cleaner
 
         setup_logging(debug=True)
+        logger = get_logger()
         config = load_config("config.yml", args, logger)
-        realdata = init_salt2mu_realdata(config)
+        realdata = init_salt2mu_realdata(config, logger)
         pos, nwalkers, ndim = input_cleaner(...)
-        sampler = MCMC(config, pos, nwalkers, ndim, realdata)
+        MCMC(config, pos, nwalkers, ndim, realdata)
 """
 
 __version__: str = "0.1.0"

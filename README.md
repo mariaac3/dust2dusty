@@ -29,32 +29,36 @@ dust2dusty --CONFIG config/my_config.yml --DEBUG_FULL
 # Run a single likelihood evaluation (test mode)
 dust2dusty --CONFIG config/my_config.yml --TEST_RUN
 
-# Use zeus or nautilus instead of emcee
-dust2dusty --CONFIG config/my_config.yml --SAMPLER zeus
+# Use nautilus instead of emcee
 dust2dusty --CONFIG config/my_config.yml --SAMPLER nautilus
 
-# Override number of walkers (emcee/zeus only)
+# Override number of walkers (emcee only)
 dust2dusty --CONFIG config/my_config.yml --NWALKERS 64
 
-# MPI run (emcee or zeus)
+# MPI run (emcee)
 mpirun -n 8 dust2dusty --CONFIG config/my_config.yml --USE_MPI
+
+# Force overwrite existing output directory
+dust2dusty --CONFIG config/my_config.yml --FORCE_OVERRIDE
 ```
 
 ### Python API
 
 ```python
-from dust2dusty import setup_logging, get_logger, Config, load_config, init_dust2dust, MCMC
+from dust2dusty import setup_logging, get_logger, Config, load_config, init_salt2mu_realdata, MCMC
+from dust2dusty.utils import input_cleaner
 
 # Set up logging
 setup_logging(debug=True)
 logger = get_logger()
 
 # Load configuration
-config = load_config("config/my_config.yml", args)
+config = load_config("config/my_config.yml", args, logger)
 
 # Initialize and run
-realdata = init_dust2dust(config, debug=True)
-sampler = MCMC(config, pos, nwalkers, ndim, realdata, debug=True, sampler="emcee")
+realdata = init_salt2mu_realdata(config, logger, debug=True)
+pos, nwalkers, ndim = input_cleaner(...)
+MCMC(config, pos, nwalkers, ndim, realdata, debug=True, sampler="emcee")
 ```
 
 ## Configuration
@@ -78,7 +82,7 @@ dust2dusty/
 ├── src/dust2dusty/
 │   ├── __init__.py      # Package initialization
 │   ├── cli.py           # Command-line interface and Config dataclass
-│   ├── mcmc.py          # MCMC sampling (emcee, zeus, nautilus)
+│   ├── mcmc.py          # MCMC sampling (emcee, nautilus)
 │   ├── dust2dust.py     # Likelihood, worker init, SALT2mu interface
 │   ├── salt2mu.py       # SALT2mu.exe subprocess wrapper
 │   ├── utils.py         # input_cleaner, pconv, helpers
@@ -123,10 +127,10 @@ In MPI mode with N ranks you get `master.log` + `worker_{0..N-1}.log` + `worker_
 | Flag | Description |
 |------|-------------|
 | `--SAMPLER emcee` | Ensemble MCMC sampler (default). Convergence via autocorrelation time. |
-| `--SAMPLER zeus` | Ensemble slice sampler. Convergence via `AutocorrelationCallback`. |
 | `--SAMPLER nautilus` | Importance sampler with neural networks. Returns Bayesian evidence `log_z`. |
-| `--NWALKERS N` | Number of walkers for emcee/zeus (default: `2 * ndim`). Minimum: `2 * ndim`. |
+| `--NWALKERS N` | Number of walkers for emcee (default: `2 * ndim`). Minimum: `2 * ndim`. |
 | `--USE_MPI` | Distribute likelihood evaluations across MPI ranks. |
+| `--FORCE_OVERRIDE` | Remove and recreate output directory if it already exists. |
 
 ### Debug modes
 
@@ -138,7 +142,7 @@ In MPI mode with N ranks you get `master.log` + `worker_{0..N-1}.log` + `worker_
 | `--DEBUG_FULL` | DEBUG (file + console) | Full convergence run | Production (optmask=4) | Diagnose issues during full runs |
 | `--TEST_RUN` | DEBUG (file + console) | Single likelihood eval | Debug (optmask=1, FITRES) | Verify setup without MCMC |
 
-- `--DEBUG`: Runs only 3 MCMC steps (emcee/zeus) or 3 likelihood calls (nautilus), saves a debug chain text file, then exits cleanly. Works for all three samplers.
+- `--DEBUG`: Runs only 3 MCMC steps (emcee) or 3 likelihood calls (nautilus), saves a debug chain text file, then exits cleanly.
 - `--DEBUG_FULL`: Runs the full production MCMC with DEBUG-level logging to console and log files. Useful for diagnosing issues that only appear during longer runs.
 - `--TEST_RUN`: Evaluates the likelihood once at the starting parameter values and exits. No MCMC sampling is performed.
 
@@ -166,7 +170,6 @@ ruff check src/dust2dusty tests
 - pyyaml >= 6.0
 - matplotlib >= 3.5.0
 - seaborn >= 0.11.0
-- zeus-mcmc (optional, for `--SAMPLER zeus`)
 - nautilus-sampler (optional, for `--SAMPLER nautilus`)
 - mpi4py (optional, for `--USE_MPI`)
 
