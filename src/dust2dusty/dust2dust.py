@@ -12,7 +12,7 @@ the SALT2mu.exe executable.
 Main Workflow:
     1. Load configuration from YAML file specifying parameters to fit
     2. Initialize connections to SALT2mu.exe subprocesses (one per MCMC walker)
-    3. Run MCMC using emcee, where each likelihood evaluation:
+    3. Run MCMC using emcee or nautilus, where each likelihood evaluation:
        - Writes PDF functions for proposed parameters
        - Calls SALT2mu.exe to reweight simulation
        - Compares data vs simulation distributions
@@ -201,8 +201,9 @@ def dffixer(
             MURES_SUM, STD_ROBUST.
 
     Returns:
-            Dictionary with keys: 'color_hist', 'x1_hist', 'mures_high',
-            'mures_low', 'rms_high', 'rms_low', 'nevt_high', 'nevt_low'.
+        Dictionary with keys: 'mures_high', 'mures_low', 'rms_high', 'rms_low',
+        'nevt_high', 'nevt_low', and optionally 'c_hist' and 'x1_hist' if those
+        columns are present in the dataframe.
     """
     low_mask = df[f"ibin_{_CONFIG.splitparam}"] == 0
 
@@ -315,7 +316,7 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         SALT2mu connection object for simulation.
 
     Side Effects:
-        - Creates temporary files in config.outdir/worker_files/ for subprocess I/O
+        - Creates temporary files in config.outdir/worker_salt2mu_files/ for subprocess I/O
         - Launches SALT2mu.exe subprocess
 
     Note:
@@ -559,6 +560,7 @@ def log_likelihood(
     Args:
         theta: Array of parameter values (length = ndim).
         returnall: If True, return detailed likelihood components.
+        last: If True, close the SALT2mu connection after this evaluation.
 
     Returns:
         Log-likelihood value (float).

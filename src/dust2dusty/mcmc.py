@@ -1,8 +1,8 @@
 """
 MCMC sampling module for DUST2DUSTY.
 
-This module contains the main MCMC sampling function supporting emcee,
-zeus, and nautilus samplers.
+This module contains the main MCMC sampling function supporting emcee
+and nautilus samplers.
 """
 
 from __future__ import annotations
@@ -40,13 +40,10 @@ def MCMC(
     sampler: str = "emcee",
 ) -> None:
     """
-    Run MCMC sampling using emcee, zeus, or nautilus.
+    Run MCMC sampling using emcee or nautilus.
 
     For emcee: uses an HDF5 backend for robust chain storage and monitors
     convergence via integrated autocorrelation time.
-
-    For zeus: uses SaveProgressCallback for HDF5 chain storage and
-    AutocorrelationCallback for convergence.
 
     For nautilus: uses importance sampling with neural networks. Builds a
     uniform Prior from parameter bounds in config.parameter_initialization.
@@ -54,8 +51,8 @@ def MCMC(
     nautilus Sampler directly (MPIPoolExecutor for MPI, None for serial).
     Chains are saved to the same HDF5 file via nautilus's filepath= argument.
 
-    For MPI runs with emcee/zeus, worker processes (rank > 0) call this
-    function with None values and wait in the pool for tasks from the master.
+    For MPI runs with emcee, worker processes (rank > 0) call this function
+    with None values and wait in the pool for tasks from the master.
     Nautilus MPI workers are managed internally by mpi4py.futures and do not
     enter this code path.
 
@@ -66,25 +63,22 @@ def MCMC(
         nwalkers: Number of MCMC walkers (0 for workers, unused by nautilus).
         ndim: Number of parameters (dimensions) (0 for workers).
         realdata_salt2mu_results: Dictionary containing real data fit results (None for workers).
-        debug: If True, run in debug mode (3 iterations for emcee/zeus, 1 shell for
-            nautilus; no persistent HDF5 backend; SALT2mu optmask=1).
+        debug: If True, run in debug mode (3 iterations for emcee, 3 likelihood calls for
+            nautilus; no persistent HDF5 backend).
         debug_logging: If True, enable DEBUG-level logging on workers
             without changing MCMC execution or SALT2mu behavior.
         max_iterations: Maximum number of iterations / likelihood calls before stopping.
             For nautilus this maps to n_like_max in sampler.run().
-        convergence_check_interval: Check convergence every N steps (emcee/zeus only).
-        sampler: Which sampler to use: 'emcee' (default), 'zeus', or 'nautilus'.
+        convergence_check_interval: Check convergence every N steps (emcee only).
+        sampler: Which sampler to use: 'emcee' (default) or 'nautilus'.
 
     Returns:
-        The sampler object with chain results (master only).
-        None for worker processes.
+        None.
 
     Convergence Criteria:
         emcee:
             1. Chain length > 100 * tau (autocorrelation time)
             2. Tau estimate changed by < 1% since last check
-        zeus:
-            AutocorrelationCallback with ncheck=100, dact=0.01, nact=10
         nautilus:
             f_live < 0.01 and n_eff >= 10000 (nautilus defaults)
 
@@ -170,7 +164,7 @@ def MCMC(
             )
 
         # ------------------------------------------------------------------
-        # Branch: emcee (Nested Sampling)
+        # Branch: emcee (Ensemble MCMC)
         # ------------------------------------------------------------------
         elif sampler == "emcee":
             _run_emcee(
@@ -184,9 +178,6 @@ def MCMC(
                 chain_file=chain_file,
                 max_iterations=max_iterations,
                 convergence_check_interval=convergence_check_interval,
-                autocorr_history=autocorr_history if not debug else None,
-                autocorr_index=autocorr_index if not debug else 0,
-                old_tau=old_tau if not debug else np.inf,
             )
 
         else:
@@ -213,10 +204,40 @@ def _run_emcee(
     chain_file,
     max_iterations,
     convergence_check_interval,
-    autocorr_history,
-    autocorr_index,
-    old_tau,
 ):
+    """
+    Run emcee ensemble MCMC sampling until convergence or max iterations.
+
+    In debug mode, runs exactly 3 steps, writes the chain to a text file
+    alongside ``chain_file``, logs completion, and returns early without
+    writing an HDF5 backend or autocorrelation history.
+
+    In normal mode, runs the sampler in a loop and checks convergence every
+    ``convergence_check_interval`` steps using the integrated autocorrelation
+    time ``tau``.  Convergence is declared when both conditions hold:
+
+        - chain length > 100 * tau  (sufficient independent samples)
+        - relative change in tau since last check < 1%
+
+    The loop runs for at most ``max_iterations`` steps. After the loop,
+    autocorrelation history is saved as a ``.npz`` file and
+    ``_finalize_emcee`` is called to thin and save the posterior samples.
+
+    Args:
+        config: Configuration object with parameter metadata and paths.
+        pos: Initial walker positions, shape ``(nwalkers, ndim)``.
+        nwalkers: Number of ensemble walkers.
+        ndim: Number of parameters (dimensions).
+        pool: schwimmbad pool (SerialPool or MPIPool) used by emcee.
+        n_proc: Total number of MPI processes (1 for serial runs).
+        debug: If True, run 3 steps only and save a debug text file.
+        chain_file: ``pathlib.Path`` to the HDF5 chain file.
+        max_iterations: Maximum number of sampler steps before stopping.
+        convergence_check_interval: Check convergence every this many steps.
+
+    Returns:
+        None.
+    """
     # Create backend file to save chain progress
     if debug:
         backend = None
@@ -308,6 +329,31 @@ def _finalize_emcee(
     chain_file,
     nwalkers,
 ):
+    """
+    Compute burn-in and thinning from autocorrelation time and save thinned samples.
+
+    Calls ``sampler_obj.get_autocorr_time()`` to obtain the final per-parameter
+    autocorrelation time ``tau``.  Burn-in is set to ``2 * max(tau)`` and
+    thinning to ``0.5 * min(tau)``.  Logs the effective sample count estimate
+    and saves the thinned flat chain together with ``tau``, ``burnin``, and
+    ``thin`` to a ``.npz`` file derived from ``chain_file``.
+
+    If the chain is too short for a reliable autocorrelation estimate,
+    ``emcee.autocorr.AutocorrError`` is caught and a warning is logged
+    instead of raising.
+
+    Args:
+        config: Configuration object (currently unused but reserved for
+            future parameter-name annotations).
+        sampler_obj: Completed ``emcee.EnsembleSampler`` instance.
+        chain_file: ``pathlib.Path`` to the HDF5 chain file; used to derive
+            the output ``.npz`` filename.
+        nwalkers: Number of ensemble walkers, used to estimate effective
+            sample count.
+
+    Returns:
+        None.
+    """
     logger.info("\n" + "=" * 60)
     logger.info("MCMC COMPLETE")
     logger.info("=" * 60)
@@ -352,6 +398,43 @@ def _run_nautilus(
     chain_file,
     max_iterations,
 ):
+    """
+    Run nautilus importance sampler until convergence or a likelihood-call cap.
+
+    Builds a ``nautilus.Prior`` by iterating over the parameter names produced
+    by ``pconv`` and adding each as a ``scipy.stats.uniform`` distribution
+    whose support is taken from ``config.parameter_initialization[name]["bounds"]``.
+
+    Creates a ``nautilus.Sampler`` with ``log_likelihood``, ``pass_dict=False``,
+    and the provided ``pool``.  The HDF5 ``filepath`` and ``resume`` flags are
+    set from ``chain_file`` unless in debug mode.
+
+    Running behaviour:
+
+        - Debug mode: caps likelihood evaluations at ``n_like_max=3``, logs
+          completion, and returns without calling ``_finalize_nautilus``.
+        - Normal mode: sets ``n_like_max=max_iterations`` and calls
+          ``_finalize_nautilus`` after ``sampler_obj.run()`` completes.
+
+    Args:
+        config: Configuration object with parameter metadata and paths.
+        realdata_salt2mu_results: Real-data SALT2mu fit results (currently
+            forwarded for context; not directly consumed here).
+        ndim: Number of parameters (dimensions).
+        pool: Pool object passed directly to ``nautilus.Sampler``
+            (MPIPoolExecutor for MPI, SerialPool for serial runs).
+        n_proc: Total number of MPI processes (1 for serial runs).
+        debug: If True, cap at 3 likelihood calls and skip finalisation.
+        debug_logging: If True, DEBUG-level logging is active on workers
+            (does not change sampling behaviour).
+        chain_file: ``pathlib.Path`` to the HDF5 chain file passed to
+            ``nautilus.Sampler`` as ``filepath``.
+        max_iterations: Maximum number of likelihood calls (``n_like_max``)
+            in normal mode.
+
+    Returns:
+        None.
+    """
     try:
         from nautilus import Prior, Sampler
     except ImportError:
@@ -405,6 +488,28 @@ def _run_nautilus(
 
 
 def _finalize_nautilus(config, sampler_obj, chain_file):
+    """
+    Extract equal-weight posterior samples from a completed nautilus sampler and save them.
+
+    Calls ``sampler_obj.posterior(equal_weight=True)`` to obtain an
+    unweighted draw from the posterior, which returns ``(points, log_w, log_l)``.
+    Logs the number of posterior samples and the log evidence ``log_z``.
+    Saves ``samples``, ``log_w``, ``log_l``, and ``log_z`` to a ``.npz``
+    file derived from ``chain_file``.
+
+    If posterior extraction fails for any reason, a warning is logged and
+    the exception message is included, but no exception is re-raised.
+
+    Args:
+        config: Configuration object (currently unused but reserved for
+            future parameter-name annotations).
+        sampler_obj: Completed ``nautilus.Sampler`` instance.
+        chain_file: ``pathlib.Path`` to the HDF5 chain file; used to derive
+            the output ``.npz`` filename.
+
+    Returns:
+        None.
+    """
     logger.info("\n" + "=" * 60)
     logger.info("MCMC COMPLETE (nautilus)")
     logger.info("=" * 60)
@@ -434,6 +539,27 @@ def _finalize_nautilus(config, sampler_obj, chain_file):
 
 
 def cleanup_workers(pool, n_proc, logger):
+    """
+    Shut down all SALT2mu worker subprocesses.
+
+    Maps ``cleanup_worker`` over ``range(n_proc)`` using ``pool.map`` so that
+    every worker process (including MPI ranks) terminates its SALT2mu
+    subprocess cleanly.  The result iterator is consumed immediately via
+    ``list()`` to ensure all workers have finished before returning.
+
+    Logs a message before dispatching the cleanup tasks and another after
+    all workers have confirmed termination.
+
+    Args:
+        pool: schwimmbad pool (SerialPool or MPIPool) used to broadcast the
+            cleanup call to every worker rank.
+        n_proc: Total number of worker processes; determines the range of
+            indices passed to ``cleanup_worker``.
+        logger: Logger instance used to record start and completion messages.
+
+    Returns:
+        None.
+    """
     logger.info("Shutting down SALT2mu subprocesses...")
     list(pool.map(cleanup_worker, range(n_proc)))
     logger.info("All SALT2mu subprocesses terminated.")

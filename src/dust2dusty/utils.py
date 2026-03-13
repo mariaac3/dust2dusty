@@ -70,7 +70,8 @@ def init_salt2mu_realdata(
 
     Args:
         config: Configuration object containing paths and parameters.
-        debug: If True, use debug connection index.
+        logger: Logger instance for output messages.
+        debug: If True, use debug-mode filenames and pass debug flag to SALT2mu connection.
 
     Returns:
         Dictionary containing real data fit results with keys:
@@ -274,7 +275,7 @@ def subprocess_to_snana(outdir: str, snana_mapping: dict[str, str]) -> str:
 def norm_hist_to_data(
     datacount: NDArray[np.float64],
     simcount: NDArray[np.float64],
-) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_]]:
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
     """
     Normalize simulation histogram to match total counts in data.
 
@@ -288,11 +289,10 @@ def norm_hist_to_data(
         simcount: Array of simulation histogram counts per bin.
 
     Returns:
-        Tuple of (datacount_masked, simcount_normalized, poisson_errors, mask):
+        Tuple of (datacount_masked, simcount_normalized, poisson_errors):
             - datacount_masked: Data counts with zero bins removed
             - simcount_normalized: Sim counts scaled by (datatot/simtot), zeros removed
-            - poisson_err: sqrt(datacount) per bin, minimum value 1
-            - mask: Boolean array indicating non-zero bins (True = kept)
+            - poisson_err: Combined Poisson error per bin, zeros removed
     """
     datatot = np.sum(datacount)
     simtot = np.sum(simcount)

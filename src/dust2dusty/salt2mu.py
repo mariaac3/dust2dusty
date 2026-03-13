@@ -85,9 +85,9 @@ class SALT2mu:
         Args:
             command: Command string for SALT2mu.exe with %s placeholders for files.
                 Format: "SALT2mu.exe input.file SUBPROCESS_FILES=%s,%s,%s ...".
-            pdf_crosstalk_file: Path for PDF crosstalk file (Python writes, SALT2mu reads).
+            genpdf_crosstalk_file: Path for PDF crosstalk file (Python writes, SALT2mu reads).
             salt2mu_out: Path for results file (SALT2mu writes, Python reads).
-            log: Path for subprocess log file.
+            salt2mu_log_out: Path for subprocess log file.
             is_realdata: If True, run synchronously and return immediately.
             debug: If True, enable debug logging and YAML output.
 
@@ -224,6 +224,7 @@ class SALT2mu:
             theta: Array of current parameter values.
             theta_index_dic: Mapping from parameter names to theta array indices.
             config: Configuration object with parameter specifications.
+            last: If True, close the SALT2mu subprocess after this iteration.
         """
         if self.process.poll() is not None:
             return subprocess.SubprocessError("Subprocess has already terminated")
@@ -700,6 +701,7 @@ class SALT2mu:
                 - Exponential: [tau]
                 - LogNormal: [ln_mu, ln_std]
                 - Skewed Gaussian: [mu, std_left, std_right]
+                - Double Gaussian: not supported (raises ValueError)
             shape: Distribution shape name.
             arr: Array of x values to evaluate PDF at.
 
