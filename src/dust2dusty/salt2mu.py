@@ -153,7 +153,7 @@ class SALT2mu:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 text=True,
-                bufsize=0,
+                bufsize=1,
             )
             self.wait_until_text_in_output(self.ready_enditer)
             self.logger.info(
@@ -168,7 +168,7 @@ class SALT2mu:
         remaining stdout until the process terminates.
         """
         self.process.stdin.write("-1\n")
-        for stdout_line in iter(self.process.stdout.readline, ""):
+        for stdout_line in self.process.stdout:
             self.logger.info(">>S2MU>> " + stdout_line)
 
     def wait_until_text_in_output(self, expected_text: str) -> None:
@@ -183,14 +183,29 @@ class SALT2mu:
         """
         start = time.time()
 
-        for line in iter(self.process.stdout.readline, ""):
+        for line in self.process.stdout:
             self.logger.debug(">>S2MU>> " + line.strip())
             if expected_text in line:
                 self.logger.debug(f"FOUND '{expected_text}' => STOP WAITING")
-                break
+                return
 
             if time.time() - start > self.timeout:
                 raise TimeoutError(f"Timeout waiting for '{expected_text}'")
+
+        self.logger.error(f"process poll -> {self.process.poll()}")
+        self.logger.error(f"process code -> {self.process.returncode}")
+        self.process.terminate()
+
+        try:
+            self.process.wait(timeout=5)  # Wait for the process to exit cleanly
+        except subprocess.TimeoutExpired:
+            self.process.kill()  # Force kill if it doesn't terminate
+
+        outs, errs = self.process.communicate()  # Capture any remaining output after termination
+        self.logger.error(f"Remaining output: {outs}")
+        self.logger.error(f"Remaining errs: {errs}")
+
+        raise RuntimeError("SALT2mu process terminated unexpectedly while waiting for output")
 
     def iterate(
         self,
