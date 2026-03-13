@@ -725,7 +725,7 @@ def cleanup_worker(_: Any = None) -> None:
     """
     Gracefully shut down the SALT2mu subprocess for this worker.
 
-    Calls SALT2mu.quit() to send the termination signal (-1) to the
+    Calls SALT2mu.close() to send the termination signal (-1) to the
     subprocess. Designed to be called via pool.map() so each worker
     cleans up its own connection.
 
@@ -736,5 +736,5 @@ def cleanup_worker(_: Any = None) -> None:
 
     if _WORKER_SALT2MU_CONNECTION is not None:
         logger.info(f"Worker {_WORKER_INDEX}: shutting down SALT2mu subprocess")
-        _WORKER_SALT2MU_CONNECTION.quit()
+        _WORKER_SALT2MU_CONNECTION.close()
         _WORKER_SALT2MU_CONNECTION = None
