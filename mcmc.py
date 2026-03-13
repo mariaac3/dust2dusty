@@ -1,0 +1,259 @@
+"""
+MCMC sampling module for DUST2DUSTY.
+
+This module contains the main MCMC sampling function using emcee.
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+from typing import TYPE_CHECKING, Any
+
+import emcee
+import numpy as np
+import schwimmbad
+from numpy.typing import NDArray
+
+from dust2dusty.dust2dust import _init_worker, cleanup_worker, log_probability
+from dust2dusty.log import get_logger, setup_logging
+from dust2dusty.utils import pconv, write_chain_to_text
+
+if TYPE_CHECKING:
+    from dust2dusty.cli import Config
+
+logger: logging.Logger = get_logger()
+
+
+def MCMC(
+    config: Config | None,
+    pos: NDArray[np.float64] | None,
+    nwalkers: int,
+    ndim: int,
+    realdata_salt2mu_results: dict[str, Any] | None,
+    debug: bool = False,
+    debug_logging: bool = False,
+    max_iterations: int = 100000,
+    convergence_check_interval: int = 100,
+) -> emcee.EnsembleSampler | None:
+    """
+    Run MCMC sampling using emcee ensemble sampler with HDF5 backend.
+
+    Uses the emcee HDF5 backend for robust chain storage and monitors
+    convergence via integrated autocorrelation time. Sampling stops when
+    chains are sufficiently long relative to autocorrelation time and tau
+    estimates have stabilized.
+
+    For MPI runs, worker processes (rank > 0) call this function with None
+    values and wait in the pool for tasks from the master.
+
+    Args:
+        config: Configuration object with parameters and paths (None for MPI workers).
+        pos: Initial walker positions array of shape (nwalkers, ndim) (None for workers).
+        nwalkers: Number of MCMC walkers (0 for workers).
+        ndim: Number of parameters (dimensions) (0 for workers).
+        realdata_salt2mu_results: Dictionary containing real data fit results (None for workers).
+        debug: If True, run in debug mode (3 iterations, no HDF5 backend,
+            SALT2mu optmask=1). Triggered by --DEBUG or --TEST_RUN.
+        debug_logging: If True, enable DEBUG-level logging on workers
+            without changing MCMC execution or SALT2mu behavior.
+            Triggered by --DEBUG_FULL (or implicitly by --DEBUG).
+        max_iterations: Maximum number of iterations before stopping.
+        convergence_check_interval: Check convergence every N steps.
+
+    Returns:
+        The emcee sampler object with chain results (master only).
+        None for worker processes.
+
+    Convergence Criteria (from emcee documentation):
+        1. Chain length > 100 * tau (autocorrelation time)
+        2. Tau estimate changed by < 1% since last check
+
+    Side Effects:
+        - Saves chains to HDF5 file: {outdir}/chains/{data_input}-chains.h5
+        - Saves autocorrelation history to: {outdir}/chains/{data_input}-autocorr.npz
+        - Saves thinned samples to: {outdir}/chains/{data_input}-samples_thinned.npz
+    """
+    # Detect worker vs master before accessing config attributes
+    is_worker = config is None
+
+    if is_worker or config.USE_MPI:
+        from mpi4py import MPI
+
+        comm = MPI.COMM_WORLD
+
+    if is_worker:
+        # Set up basic logging for this worker process
+        setup_logging(debug=False)
+
+        # Receive initialization data from master
+        worker_config, worker_realdata, worker_debug = comm.bcast(None, root=0)
+        sys.stdout.flush()
+        _init_worker(worker_config, worker_realdata, worker_debug)
+        # Now enter the pool and wait for tasks
+        with schwimmbad.MPIPool() as pool:
+            pool.wait()
+        sys.exit(0)
+
+    # Master process continues with full MCMC setup
+    # Set up HDF5 backend for robust chain storage
+    if debug:
+        backend = None
+    else:
+        chain_filename = (
+            config.outdir
+            + "chains/"
+            + config.data_input.split(".")[0].split("/")[-1]
+            + "-chains.h5"
+        )
+        backend = emcee.backends.HDFBackend(chain_filename)
+        backend.reset(nwalkers, ndim)
+        logger.debug(f"Chain storage initialized: {chain_filename}")
+
+        # Track autocorrelation time history
+        autocorr_history = np.empty(max_iterations // convergence_check_interval)
+        autocorr_index = 0
+        old_tau: float | NDArray = np.inf
+
+    # Choose pool type - MPIPool doesn't support initializer argument
+    worker_debug = debug or debug_logging
+    if config.USE_MPI:
+        n_proc = comm.Get_size()
+        # Broadcast initialization data to all workers BEFORE creating pool
+        comm.bcast((config, realdata_salt2mu_results, worker_debug), root=0)
+        # Now create the pool
+        pool = schwimmbad.MPIPool()
+    else:
+        pool = schwimmbad.SerialPool()
+        _init_worker(config, realdata_salt2mu_results, worker_debug)
+        n_proc = 1
+
+    with pool:
+        logger.info("=" * 60)
+        logger.info("Starting MCMC sampling...")
+        logger.info(f"  Walkers: {nwalkers}")
+        logger.info(f"  Dimensions: {ndim}")
+        logger.info(f"  Parameters: {', '.join(config.inp_params)}")
+        logger.debug("DEBUG MODE ON")
+        logger.info("=" * 60 + "\n")
+
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, backend=backend)
+
+        logger.debug("=" * 60)
+        if debug:
+            sampler.run_mcmc(pos, 3)
+
+            # Save debug chains to text file for monitoring
+            param_names = pconv(
+                config.inp_params,
+                config.paramshapesdict,
+                config.splitdict,
+                config.DISTRIBUTION_PARAMETERS,
+            )
+            debug_chain_file = (
+                config.outdir
+                + "chains/"
+                + config.data_input.split(".")[0].split("/")[-1]
+                + "-debug_chains.txt"
+            )
+            write_chain_to_text(
+                sampler.get_chain(),
+                sampler.get_log_prob(),
+                param_names,
+                debug_chain_file,
+            )
+            logger.info(f"Debug chains saved to: {debug_chain_file}")
+
+            logger.info("Shutting down SALT2mu subprocesses...")
+            list(pool.map(cleanup_worker, range(n_proc)))
+            logger.info("All SALT2mu subprocesses terminated.")
+            sys.exit(0)
+
+        # Run with convergence monitoring
+        for _ in sampler.sample(pos, iterations=max_iterations, progress=True):
+            # Only check convergence every N steps
+            if sampler.iteration % convergence_check_interval:
+                continue
+
+            # Compute autocorrelation time
+            try:
+                tau = sampler.get_autocorr_time(tol=0)
+                autocorr_history[autocorr_index] = np.mean(tau)
+                autocorr_index += 1
+
+                # Check convergence criteria
+                converged = np.all(tau * 100 < sampler.iteration)
+                converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
+
+                logger.info(f"\nIteration {sampler.iteration}:")
+                logger.info(f"  Mean tau: {np.mean(tau):.1f}")
+                logger.info(f"  Min tau:  {np.min(tau):.1f}")
+                logger.info(f"  Max tau:  {np.max(tau):.1f}")
+                logger.info(
+                    f"  Chain/tau ratio: {sampler.iteration / np.max(tau):.1f} (need > 100)"
+                )
+                if isinstance(old_tau, np.ndarray) and np.isfinite(old_tau).all():
+                    tau_change = np.max(np.abs(old_tau - tau) / tau) * 100
+                    logger.info(f"  Tau change: {tau_change:.2f}% (need < 1%)")
+
+                if converged:
+                    logger.info("\n" + "=" * 60)
+                    logger.info("CONVERGENCE ACHIEVED!")
+                    logger.info(f"  Final iteration: {sampler.iteration}")
+                    logger.info(f"  Final mean tau: {np.mean(tau):.1f}")
+                    logger.info("=" * 60)
+                    break
+
+                old_tau = tau
+
+            except emcee.autocorr.AutocorrError:
+                logger.debug(f"\nIteration {sampler.iteration}: Chain too short for tau estimate")
+
+        # Save autocorrelation history
+        autocorr_filename = (
+            config.outdir
+            + "chains/"
+            + config.data_input.split(".")[0].split("/")[-1]
+            + "-autocorr.npz"
+        )
+        np.savez(autocorr_filename, autocorr=autocorr_history[:autocorr_index])
+        logger.info(f"Autocorrelation history saved to: {autocorr_filename}")
+
+        # Report final statistics
+        logger.info("\n" + "=" * 60)
+        logger.info("MCMC COMPLETE")
+        logger.info("=" * 60)
+        try:
+            tau = sampler.get_autocorr_time()
+            burnin = int(2 * np.max(tau))
+            thin = int(0.5 * np.min(tau))
+            logger.info(f"Final autocorrelation time: {tau}")
+            logger.info(f"Recommended burn-in: {burnin} steps")
+            logger.info(f"Recommended thinning: {thin} steps")
+            logger.info(f"Effective samples: ~{sampler.iteration * nwalkers / np.mean(tau):.0f}")
+
+            # Get flattened samples with burn-in and thinning applied
+            flat_samples = sampler.get_chain(discard=burnin, thin=thin, flat=True)
+            logger.info(f"Shape of thinned samples: {flat_samples.shape}")
+
+            # Save thinned samples for convenience
+            thinned_filename = (
+                config.outdir
+                + "chains/"
+                + config.data_input.split(".")[0].split("/")[-1]
+                + "-samples_thinned.npz"
+            )
+            np.savez(thinned_filename, samples=flat_samples, tau=tau, burnin=burnin, thin=thin)
+            logger.info(f"Thinned samples saved to: {thinned_filename}")
+
+        except emcee.autocorr.AutocorrError:
+            logger.warning("Could not compute final autocorrelation time.")
+            logger.warning("Chain may be too short for reliable estimates.")
+            logger.warning("Consider running longer or checking for convergence issues.")
+
+        # Gracefully shut down SALT2mu subprocesses on all workers
+        logger.info("Shutting down SALT2mu subprocesses...")
+        list(pool.map(cleanup_worker, range(n_proc)))
+        logger.info("All SALT2mu subprocesses terminated.")
+
+    return sampler
