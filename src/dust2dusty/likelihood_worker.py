@@ -50,7 +50,6 @@ from dust2dusty.utils import (
     cmd_exe,
     generate_split_array,
     norm_hist_to_data,
-    pconv,
 )
 
 if TYPE_CHECKING:
@@ -85,12 +84,12 @@ def thetaconverter(theta: NDArray[np.float64]) -> dict[str, list[int]]:
     """
     Create mapping from input parameters to theta array indices.
 
-    For each parameter in inp_params, identifies which positions in the
+    For each parameter in fitted_params, identifies which positions in the
     theta array correspond to that parameter's distribution parameters
     (after expansion for splits).
 
     Example:
-        If inp_params = ['c', 'RV'] and expanded params are
+        If fitted_params = ['c', 'RV'] and expanded params are
         ['c_mu', 'c_std', 'RV_mu_HOST_LOGMASS_low', 'RV_mu_HOST_LOGMASS_high', ...]
         then thetadict['c'] = [0, 1] and thetadict['RV'] = [2, 3, ...]
 
@@ -102,12 +101,12 @@ def thetaconverter(theta: NDArray[np.float64]) -> dict[str, list[int]]:
     """
     thetadict: dict[str, list[int]] = {}
     extparams = pconv(
-        _CONFIG.inp_params,
-        _CONFIG.paramshapesdict,
+        _CONFIG.fitted_params,
+        _CONFIG.param_dists,
         _CONFIG.splitdict,
         _CONFIG.DISTRIBUTION_PARAMETERS,
     )
-    for p in _CONFIG.inp_params:
+    for p in _CONFIG.fitted_params:
         thetalist: list[int] = []
         for n, ep in enumerate(extparams):
             if p in ep:
@@ -242,7 +241,7 @@ def dffixer(
 # =============================================================================
 
 
-def generate_genpdf_varnames(inp_params: list[str], splitparam: str) -> str:
+def generate_genpdf_varnames(fitted_params: list[str], splitparam: str) -> str:
     """
     Generate SUBPROCESS_VARNAMES_GENPDF string for SALT2mu.
 
@@ -251,7 +250,7 @@ def generate_genpdf_varnames(inp_params: list[str], splitparam: str) -> str:
     parameter names to SALT2mu column names using PARAM_TO_SALT2MU mapping.
 
     Args:
-        inp_params: List of parameter names being fit (e.g., ['c', 'RV', 'x1']).
+        fitted_params: List of parameter names being fit (e.g., ['c', 'RV', 'x1']).
         splitparam: Primary split parameter (e.g., 'HOST_LOGMASS').
 
     Returns:
@@ -259,13 +258,13 @@ def generate_genpdf_varnames(inp_params: list[str], splitparam: str) -> str:
         Example: 'SIM_c,HOST_LOGMASS,SIM_RV,SIM_x1,SIM_ZCMB,SIM_beta'
 
     Note:
-        Always includes SIM_ZCMB and SIM_beta even if not in inp_params,
+        Always includes SIM_ZCMB and SIM_beta even if not in fitted_params,
         as these are required for SALT2mu output.
     """
     varnames: list[str] = []
 
     # Add parameter variables in SALT2mu format
-    for param in inp_params:
+    for param in fitted_params:
         if param in _CONFIG.PARAM_TO_SALT2MU:
             salt2mu_name = _CONFIG.PARAM_TO_SALT2MU[param]
             if salt2mu_name not in varnames:
@@ -327,8 +326,6 @@ def init_salt2mu_worker_connection() -> SALT2mu:
     """
     optmask = 4
     directory = "worker_salt2mu_files"
-    # if _WORKER_DEBUGFLAG:
-    #     optmask = 1
 
     outdir = Path(_CONFIG.outdir)
     subprocess_salt2mu_res = outdir / f"{directory}/{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_RES.DAT"
@@ -349,14 +346,13 @@ def init_salt2mu_worker_connection() -> SALT2mu:
     arg_outtable = f"'c(6,-0.2:0.25)*{_CONFIG.SPLIT_PARAMETER_FORMATS[_CONFIG.splitparam]}'"
 
     # Generate GENPDF variable names from input parameters
-    genpdf_names = generate_genpdf_varnames(_CONFIG.inp_params, _CONFIG.splitparam)
+    genpdf_names = generate_genpdf_varnames(_CONFIG.fitted_params, _CONFIG.splitparam)
 
     cmd = cmd_exe(JOBNAME_SALT2MU, _CONFIG.sim_input) + (
         f"SUBPROCESS_VARNAMES_GENPDF={genpdf_names} "
         f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} "
         f"SUBPROCESS_OPTMASK={optmask} "
         f"SUBPROCESS_SIMREF_FILE={_CONFIG.simref_file} "
-        f"debug_flag=930"
     )
 
     connection = SALT2mu(
@@ -567,12 +563,15 @@ def log_likelihood(
         If returnall=True: tuple of (ll_dict, datacount_dict, simcount_dict, poisson_dict).
         Returns -inf if MAXPROB > 1.001 (PDF hitting boundary).
     """
+    # De-log
+    theta[_LIKELIHOOD_PARAMETERS["log_sampling"]] = np.exp(
+        theta[_LIKELIHOOD_PARAMETERS["log_sampling"]]
+    )
 
-    theta_index_dic = thetaconverter(theta)
-    logger.debug(f"theta: {theta}, thetha_dic: {theta_index_dic}")
+    theta_dic = dict(zip(_LIKELIHOOD_PARAMETERS["par_names"], theta))
 
     # Run SALT2mu with these PDFs
-    _WORKER_SALT2MU_CONNECTION.iterate(theta, theta_index_dic, _CONFIG, last=last)
+    _WORKER_SALT2MU_CONNECTION.iterate(theta_dic, _CONFIG.fitted_par, last=last)
 
     if _WORKER_SALT2MU_CONNECTION.salt2mu_results["maxprob"] > 1.001:
         logger.warning(
@@ -612,8 +611,8 @@ def log_prior(theta: NDArray[np.float64] | list[float]) -> float:
     """
     thetadict = thetaconverter(theta)
     plist = pconv(
-        _CONFIG.inp_params,
-        _CONFIG.paramshapesdict,
+        _CONFIG.fitted_params,
+        _CONFIG.param_dists,
         _CONFIG.splitdict,
         _CONFIG.DISTRIBUTION_PARAMETERS,
     )
@@ -673,6 +672,7 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
 def _init_worker(
     config: Config,
     realdata_salt2mu_results: dict[str, Any],
+    likelihood_parameters: dict,
     debug: bool = False,
 ) -> None:
     """
@@ -699,9 +699,11 @@ def _init_worker(
     global _WORKER_DEBUGFLAG
     global _CONFIG
     global _WORKER_INDEX
+    global _LIKELIHOOD_PARAMETERS
 
     _WORKER_DEBUGFLAG = debug
     _CONFIG = config
+    _LIKELIHOOD_PARAMETERS = likelihood_parameters
 
     _WORKER_INDEX = get_worker_index()
 

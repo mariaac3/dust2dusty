@@ -55,7 +55,7 @@ CLI (cli.py: main)
   → Load YAML config → Config dataclass
   → Run SALT2mu on real data (utils.py: init_salt2mu_realdata)
   → MCMC sampling loop (mcmc.py: MCMC)
-      → log_probability (dust2dust.py)
+      → log_probability (likelihood_worker.py)
           → Write PDF functions → SALT2mu subprocess (salt2mu.py)
           → Parse SALT2mu output → chi-squared likelihood
   → Save chains (HDF5 + thinned samples)
@@ -65,7 +65,7 @@ CLI (cli.py: main)
 ### Module Responsibilities
 
 - **`cli.py`** — `Config` dataclass (YAML loading, validation), output directory creation, `PARAM_TO_SALT2MU`/`SUBPROCESS_TO_SNANA` mappings, `main()` entry point.
-- **`dust2dust.py`** — `log_probability()`, `log_likelihood()`, `log_prior()`. Worker-local globals (`_WORKER_*`) store per-process SALT2mu state. Observables: color (c), stretch (x1), Hubble residuals (MURES) and RMS by mass bin, beta, sigint.
+- **`likelihood_worker.py`** — `log_probability()`, `log_likelihood()`, `log_prior()`. Worker-local globals (`_WORKER_*`) store per-process SALT2mu state. Observables: color (c), stretch (x1), Hubble residuals (MURES) and RMS by mass bin, beta, sigint.
 - **`mcmc.py`** — `MCMC()`: supports `emcee` (default), `zeus`, and `nautilus` samplers, selected via `--SAMPLER`. emcee uses an HDF5 backend with manual convergence monitoring (chain > 100×tau AND tau change < 1%); zeus uses `AutocorrelationCallback` + `SaveProgressCallback`; nautilus is an importance sampler with neural networks that builds a uniform `Prior` from `parameter_initialization` bounds, calls `log_likelihood` directly (prior handled internally), and saves `log_z` (Bayesian evidence) alongside posterior samples. emcee/zeus share schwimmbad pool/MPI setup; nautilus bypasses schwimmbad and uses `MPIPoolExecutor` directly (or `pool=None` for serial). Internal helpers `_run_emcee` / `_run_zeus` / `_run_nautilus` / `_finalize_*` contain sampler-specific logic.
 - **`salt2mu.py`** — `SALT2mu` class: launches persistent `SALT2mu.exe` subprocess, communicates via files (`pdf_crosstalk_file` written by Python, `salt2mu_out` written by subprocess).
 - **`utils.py`** — `pconv()` parameter expansion, `input_cleaner()` walker initialization, histogram normalization, `cmd_exe()` for building SALT2mu command strings.
@@ -107,14 +107,14 @@ Example: `RV` with Gaussian shape and `HOST_LOGMASS` split at 10 expands to `RV_
 
 See `config/` for example YAML files. Key sections:
 - `DATA_INPUT`, `SIM_INPUT`, `SIMREF_FILE`, `OUTDIR` — file paths
-- `INP_PARAMS`, `PARAMSHAPESDICT`, `SPLITPARAM`, `SPLITDICT` — what to fit and how to split
+- `FITTED_PARAMS`, `PARAM_DISTS`, `SPLITPARAM`, `SPLITDICT` — what to fit and how to split
 - `PARAMS` — initial parameter values (before expansion)
 - `SPLITARR` — arrays for evaluating PDFs at split boundaries
 - `PARAMETER_INITIALIZATION` — per-parameter start, stdev, bounds, `require_positive`
 
 ## Key Files
 
-- `dust2dusty/dust2dust.py` — likelihood evaluation (core science logic)
+- `dust2dusty/likelihood_worker.py` — likelihood evaluation (core science logic)
 - `dust2dusty/mcmc.py` — MCMC sampling and convergence
 - `dust2dusty/salt2mu.py` — SALT2mu.exe subprocess wrapper
 - `dust2dusty/cli.py` — Config dataclass and entry point

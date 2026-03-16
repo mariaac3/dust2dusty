@@ -69,8 +69,8 @@ Required configuration keys:
 - `DATA_INPUT`: Path to real data input file
 - `SIM_INPUT`: Path to simulation input file
 - `SIMREF_FILE`: Path to simulation reference file
-- `INP_PARAMS`: List of parameters to fit (e.g., `['c', 'RV', 'EBV']`)
-- `PARAMSHAPESDICT`: Distribution shapes for each parameter
+- `FITTED_PARAMS`: List of parameters to fit (e.g., `['c', 'RV', 'EBV']`)
+- `PARAM_DISTS`: Distribution shapes for each parameter
 - `SPLITDICT`: Parameter splits (e.g., by host mass)
 - `PARAMETER_INITIALIZATION`: Prior bounds and initialization
 - `SPLITARR`: Split variable arrays
@@ -83,7 +83,7 @@ dust2dusty/
 │   ├── __init__.py      # Package initialization
 │   ├── cli.py           # Command-line interface and Config dataclass
 │   ├── mcmc.py          # MCMC sampling (emcee, nautilus)
-│   ├── dust2dust.py     # Likelihood, worker init, SALT2mu interface
+│   ├── likelihood_worker.py     # Likelihood, worker init, SALT2mu interface
 │   ├── salt2mu.py       # SALT2mu.exe subprocess wrapper
 │   ├── utils.py         # input_cleaner, pconv, helpers
 │   └── log.py           # Shared logging configuration

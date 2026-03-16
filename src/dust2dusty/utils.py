@@ -7,9 +7,9 @@ making them easily testable and reusable.
 
 from __future__ import annotations
 
-import itertools
 import logging
 import os
+from itertools import combinations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -55,7 +55,7 @@ def cmd_exe(executable: str, input_file: str) -> str:
     return f"{executable} {input_file} SUBPROCESS_FILES=%s,%s,%s "
 
 
-def init_salt2mu_realdata(
+def _init_salt2mu_realdata(
     config: Config,
     logger: logging.Logger,
     debug: bool = False,
@@ -119,72 +119,51 @@ def init_salt2mu_realdata(
     return real_data.salt2mu_results
 
 
-def pconv(
-    inp_params: list[str],
-    paramshapesdict: dict[str, str],
-    splitdict: dict[str, dict[str, float]],
-    distribution_parameters: dict[str, list[str]],
-) -> list[str]:
-    """
-    Convert input parameters to expanded parameter list.
+def get_sampled_par_names_and_init(config) -> list[str]:
+    sampled_par_names = []
+    for p, pdic in config.fitted_params.items():
+        if "splits" not in pdic:
+            sampled_par_names.extend(
+                [f"{p}_{dist_p}" for dist_p in config.DISTRIBUTION_PARAMETERS[pdic["dist"]]]
+            )
+        else:
+            splits = pdic["splits"].keys()
+            split_string = f"{p}_{{}}_" + "_".join([f"{split_p}_{{}}" for split_p in splits])
+            split_states = []
+            for r in range(len(splits) + 1):
+                for low_vars in combinations(splits, r):
+                    split_states.append(["low" if v in low_vars else "high" for v in splits])
 
-    Takes high-level parameter names and expands them into a full list of
-    distribution parameters, accounting for:
-    1. Distribution shape (Gaussian needs mu+std, Exponential needs tau, etc.)
-    2. Parameter splits (e.g., different values for low/high mass)
+            sampled_par_names.extend(
+                [
+                    split_string.format(dist_p, *split_st)
+                    for split_st in split_states
+                    for dist_p in config.DISTRIBUTION_PARAMETERS[pdic["dist"]]
+                ]
+            )
+    p0_mu = np.array([config.parameter_inits[p]["p0"] for p in sampled_par_names])
+    p0_std = np.array([config.parameter_inits[p]["p0_std"] for p in sampled_par_names])
+    log_sampling = np.array(
+        [True if "tau" in p or "std" in p else False for p in sampled_par_names], dtype=bool
+    )
 
-    Example:
-        >>> pconv(['RV'], {'RV': 'Gaussian'}, {'RV': {'HOST_LOGMASS': 10}},
-        ...       {'Gaussian': ['mu', 'std']})
-        ['RV_HOST_LOGMASS_low_mu', 'RV_HOST_LOGMASS_low_std',
-         'RV_HOST_LOGMASS_high_mu', 'RV_HOST_LOGMASS_high_std']
+    # log sampling of variance
+    p0_mu[log_sampling] = np.log(p0_mu[log_sampling])
+    p0_std[log_sampling] = np.log(p0_std[log_sampling])
 
-    Args:
-        inp_params: List of high-level parameter names (e.g., ['c', 'RV', 'EBV']).
-        paramshapesdict: Maps parameter to distribution shape
-            (e.g., {'c': 'Gaussian'}).
-        splitdict: Nested dict defining parameter splits.
-            Format: {param: {split_var: split_value}}.
-            Example: {'RV': {'HOST_LOGMASS': 10, 'SIM_ZCMB': 0.1}}.
-        distribution_parameters: Dict mapping distribution names to their
-            parameter names (e.g., {'Gaussian': ['mu', 'std']}).
+    par_bounds = np.array(
+        [
+            config.parameter_inits[p]["bounds"]
+            if not log_sampling[i]
+            else [-np.inf, np.log(config.parameter_inits[p]["bounds"][-1])]
+            for i, p in enumerate(sampled_par_names)
+        ]
+    )
 
-    Returns:
-        Expanded parameter names (length = ndim for MCMC).
-        Format: 'PARAM_SPLITVAR1_lowhigh_SPLITVAR2_lowhigh_..._DISTPARAM'.
-    """
-    inpfull: list[list[str]] = []
-    for i in inp_params:
-        initial_dimension = list(distribution_parameters[paramshapesdict[i]])
-        if i in splitdict.keys():
-            things_to_split_on = splitdict[i]
-            nsplits = len(things_to_split_on)
-            params_to_split_on = things_to_split_on.keys()
-            # Create format string like "{}_{}_{}_{}" for nsplits*2 parameters
-            format_string = "_".join(["{}"] * nsplits * 2)
-            lowhigh_array = np.tile(["low", "high"], [nsplits, 1])
-            splitlist = []
-            for lowhigh_combo in itertools.product(*lowhigh_array):
-                to_format = [val for pair in zip(params_to_split_on, lowhigh_combo) for val in pair]
-                final = format_string.format(*to_format)
-                splitlist.append(final)
-            initial_dimension = [
-                tmp[1] + "_" + tmp[0] for tmp in itertools.product(splitlist, initial_dimension)
-            ]
-        final_dimension = [i + "_" + s for s in initial_dimension]
-        inpfull.append(final_dimension)
-    return [item for sublist in inpfull for item in sublist]
+    return sampled_par_names, p0_mu, p0_std, par_bounds, log_sampling
 
 
-def input_cleaner(
-    inp_params: list[str],
-    paramshapesdict: dict[str, str],
-    splitdict: dict[str, dict[str, float]],
-    distribution_parameters: dict[str, list[str]],
-    parameter_initialization: dict[str, dict[str, Any]],
-    parameter_overrides: dict[str, float],
-    walkfactor: int = 2,
-) -> tuple[NDArray[np.float64], int, int]:
+def input_cleaner(config) -> tuple[NDArray[np.float64], int, int]:
     """
     Initialize MCMC walker starting positions with appropriate constraints.
 
@@ -192,8 +171,8 @@ def input_cleaner(
     parameters start within their valid bounds and with appropriate spreads.
 
     Args:
-        inp_params: List of parameter names to fit (e.g., ['c', 'RV', 'EBV']).
-        paramshapesdict: Maps parameter to distribution shape.
+        fitted_params: List of parameter names to fit (e.g., ['c', 'RV', 'EBV']).
+        param_dists: Maps parameter to distribution shape.
         splitdict: Nested dict defining parameter splits.
         distribution_parameters: Dict mapping distribution names to parameter names.
         parameter_initialization: Dictionary containing initialization info for
@@ -208,7 +187,7 @@ def input_cleaner(
             - nwalkers: Number of MCMC walkers
             - ndim: Number of dimensions (parameters)
     """
-    plist = pconv(inp_params, paramshapesdict, splitdict, distribution_parameters)
+    plist = pconv(fitted_params, param_dists, splitdict, distribution_parameters)
     nwalkers = len(plist) * walkfactor
     for element in parameter_overrides.keys():
         plist.remove(element)

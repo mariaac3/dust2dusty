@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
+import shutil
 import sys
 from dataclasses import _MISSING_TYPE, dataclass, field, fields
 from pathlib import Path
+from pickle import NONE
 from typing import Any, ClassVar
 
 import numpy as np
@@ -27,7 +28,11 @@ import yaml
 from numpy.typing import NDArray
 
 from dust2dusty.log import add_file_handler, get_logger, setup_logging
-from dust2dusty.utils import __dust2dust_str__, pconv
+from dust2dusty.utils import (
+    __dust2dust_str__,
+    _init_salt2mu_realdata,
+    get_sampled_par_names_and_init,
+)
 
 
 @dataclass
@@ -44,9 +49,9 @@ class Config:
         simref_file: Path to simulation reference file.
         outdir: Output directory for results.
         chains: Path to existing chains file (for resuming).
-        inp_params: List of parameter names to fit.
+        fitted_params: List of parameter names to fit.
         params: Initial parameter values for test runs.
-        paramshapesdict: Maps parameters to distribution shapes.
+        param_dists: Maps parameters to distribution shapes.
         splitdict: Defines parameter splits by host properties.
         splitparam: Primary split parameter name.
         parameter_initialization: Initialization specs for each parameter.
@@ -68,22 +73,6 @@ class Config:
         PARAMETER_OVERRIDES: Fixed parameters (not fitted).
         DISTRIBUTION_PARAMETERS: Parameter names for each distribution type.
     """
-
-    # Parameter name mappings for SALT2mu format
-    PARAM_TO_SALT2MU: ClassVar[dict[str, str]] = {
-        "c": "SIM_c",
-        "x1": "SIM_x1",
-        "HOST_LOGMASS": "HOST_LOGMASS",
-        "Mass": "HOST_LOGMASS",
-        "RV": "SIM_RV",
-        "EBV": "SIM_EBV",
-        "beta": "SIM_beta",
-        "SIM_ZCMB": "SIM_ZCMB",
-        "EBVZ": "SIM_EBV",
-        "ZTRUE": "SIM_ZCMB",
-        "z": "SIM_ZCMB",
-        "HOST_COLOR": "HOST_COLOR",
-    }
 
     # SNANA output format mappings
     SUBPROCESS_TO_SNANA: ClassVar[dict[str, str]] = {
@@ -118,39 +107,32 @@ class Config:
     # Distribution parameter specifications
     DISTRIBUTION_PARAMETERS: ClassVar[dict[str, list[str]]] = {
         "Gaussian": ["mu", "std"],
-        "Skewed Gaussian": ["mu", "std_l", "std_r"],
-        "Exponential": ["Tau"],
+        "Skewed Gaussian": ["mu", "std_low", "std_high"],
+        "Exponential": ["tau"],
         "LogNormal": ["ln_mu", "ln_std"],
-        "Double Gaussian": ["a1", "mu1", "std1", "mu2", "std2"],
+        "Double Gaussian": ["a_1", "mu_1", "std_1", "mu_2", "std_2"],
     }
 
     # File paths (required)
-    data_input: str
-    sim_input: str
-    simref_file: str
+    OUTPUT_DIR: str | Path
+    data_input: str | Path
+    sim_input: str | Path
+    simref_file: str | Path
 
     # File paths (optional)
-    outdir: str = "./dust2dust_output/"
     chains: str | None = None
 
     # Parameter configuration
-    inp_params: list[str] = field(default_factory=list)
-    params: dict[str, dict[str, Any]] = field(default_factory=dict)
-    paramshapesdict: dict[str, str] = field(default_factory=dict)
-    splitdict: dict[str, dict[str, float]] = field(default_factory=dict)
-    splitparam: str = "HOST_LOGMASS"
-    parameter_initialization: dict[str, dict[str, Any]] = field(default_factory=dict)
+    fitted_params: list[str] = field(default_factory=dict)
+    parameter_inits: dict[str, dict[str, Any]] = field(default_factory=dict)
     splitarr: dict[str, dict[str, Any]] = field(default_factory=dict)
 
-    # Command line arguments
-    # - Command-line overrides
-    CMD_DATA: str | None = None
-    CMD_SIM: str | None = None
+    # - MPI flag
+    USE_MPI: bool = False
 
     # - Runtime flags
-    USE_MPI: bool = False
     TEST_RUN: bool = False
-    DEBUG: bool = False
+    DEBUG_RUN: bool = False
     DEBUG_FULL: bool = False
     NOWEIGHT: bool = False
     VERBOSE: bool = False
@@ -171,29 +153,21 @@ class Config:
         """
         return cls(
             # File paths
-            data_input=config_dict["DATA_INPUT"],
-            sim_input=config_dict["SIM_INPUT"],
-            simref_file=config_dict["SIMREF_FILE"],
-            outdir=config_dict.get("OUTDIR", ""),
+            data_input=Path(config_dict["DATA_INPUT"]),
+            sim_input=Path(config_dict["SIM_INPUT"]),
+            simref_file=Path(config_dict["SIMREF_FILE"]),
             # Parameter configuration
-            inp_params=config_dict["INP_PARAMS"],
-            params=config_dict.get("PARAMS", []),
-            paramshapesdict=config_dict["PARAMSHAPESDICT"],
-            splitdict=config_dict["SPLITDICT"],
-            splitparam=config_dict.get("SPLITPARAM", "HOST_LOGMASS"),
-            parameter_initialization=config_dict["PARAMETER_INITIALIZATION"],
-            splitarr=config_dict["SPLITARR"],
+            fitted_params=config_dict["FITTED_PARAMS"],
+            parameter_inits=config_dict["PARAMETER_INITS"],
             # Command-line arguments
-            CMD_DATA=args.CMD_DATA,
-            CMD_SIM=args.CMD_SIM,
+            OUTPUT_DIR=Path(args.OUTPUT_DIR),
             TEST_RUN=args.TEST_RUN,
-            DEBUG=args.DEBUG or args.TEST_RUN,
+            DEBUG_RUN=args.DEBUG_RUN,
             DEBUG_FULL=args.DEBUG_FULL,
             NOWEIGHT=args.NOWEIGHT,
-            USE_MPI=args.USE_MPI,
             VERBOSE=args.VERBOSE,
             SAMPLER=args.SAMPLER,
-            NWALKERS=args.NWALKERS,
+            USE_MPI=args.USE_MPI,  # MPI is auto-detected
         )
 
     def __post_init__(self):
@@ -204,7 +178,9 @@ class Config:
                 setattr(self, f.name, f.default)
 
 
-def create_output_directories(outdir: str, logger: logging.Logger, force: bool = False):
+def _create_output_directories(
+    outdir: Path, config_file: Path, logger: logging.Logger, force: bool = False
+):
     """
     Create output directory structure for DUST2DUSTY results.
 
@@ -227,12 +203,8 @@ def create_output_directories(outdir: str, logger: logging.Logger, force: bool =
         SystemExit: If directory structure cannot be created.
     """
     # Use current directory if none specified
-    outdir = Path(outdir)
-
     if outdir.exists():
         if force:
-            import shutil
-
             logger.warning(f"Removing existing output directory: {outdir.absolute()}")
             shutil.rmtree(outdir)
         else:
@@ -243,11 +215,14 @@ def create_output_directories(outdir: str, logger: logging.Logger, force: bool =
     logger.debug(f"Create main directory {outdir.absolute()}")
     outdir.mkdir(parents=True, exist_ok=True)
 
+    # Copy config
+    shutil.copy2(config_file, outdir)
+
     # Create required subdirectories
     required_subdirs = [
         "chains",
         "logs",
-        "realdata_files",
+        "realdata_salt2mu_files",
         "worker_salt2mu_files",
     ]
     for subdir in required_subdirs:
@@ -256,7 +231,7 @@ def create_output_directories(outdir: str, logger: logging.Logger, force: bool =
         subdir_path.mkdir(parents=True, exist_ok=True)
 
 
-def load_config(config_path: str, args: argparse.Namespace, logger: logging.Logger) -> Config:
+def _load_config(args: argparse.Namespace, logger: logging.Logger, USE_MPI=False) -> Config:
     """
     Load configuration from YAML file and set up output directories.
 
@@ -278,18 +253,14 @@ def load_config(config_path: str, args: argparse.Namespace, logger: logging.Logg
         SystemExit: If config file doesn't exist, has invalid syntax,
             is missing required keys, or output directories cannot be created.
     """
-    # Validate config file path
-    if not config_path:
-        logger.error("No configuration file specified. Use --CONFIG <path>")
-        sys.exit(1)
-
-    if not os.path.exists(config_path):
+    config_file = Path(args.CONFIG_FILE)
+    if not config_file.exists():
         logger.error(f"Configuration file not found: {config_path}")
         sys.exit(1)
 
     # Load YAML file
     try:
-        with open(config_path) as cfgfile:
+        with open(config_file) as cfgfile:
             config_dict = yaml.safe_load(cfgfile)
     except yaml.YAMLError as e:
         logger.error(f"Invalid YAML syntax in {config_path}")
@@ -297,35 +268,39 @@ def load_config(config_path: str, args: argparse.Namespace, logger: logging.Logg
         sys.exit(1)
 
     # Validate required keys
-    required_keys = [
-        "DATA_INPUT",
-        "SIM_INPUT",
-        "INP_PARAMS",
-        "PARAMSHAPESDICT",
-        "SPLITDICT",
-        "PARAMETER_INITIALIZATION",
-        "SPLITARR",
-        "SIMREF_FILE",
-    ]
+    required_keys = set(
+        [
+            "DATA_INPUT",
+            "SIM_INPUT",
+            "FITTED_PARAMS",
+            "PARAMETER_INITS",
+            "SIMREF_FILE",
+        ]
+    )
+
     missing_keys = [key for key in required_keys if key not in config_dict]
+
     if missing_keys:
         logger.error(f"Missing required configuration keys: {missing_keys}")
         sys.exit(1)
 
+    # Add mpi use boolean
+    args.USE_MPI = USE_MPI
+
     # Create Config object from dictionary and args
     config = Config.from_dict(config_dict, args)
 
-    logger.info(f"Loaded configuration from: {config_path}")
+    logger.info(f"Loaded configuration from: {config_file}")
 
     # Set up output directory structure
-    create_output_directories(config.outdir, logger, force=args.FORCE_OVERRIDE)
+    _create_output_directories(config.OUTPUT_DIR, config_file, logger, force=args.FORCE_OVERRIDE)
 
     # Log configuration summary
     logger.info("Configuration finalized successfully:")
-    logger.info(f"---- Data: {Path(config.data_input).absolute()}")
-    logger.info(f"---- Simulation: {Path(config.sim_input).absolute()}")
-    logger.info(f"---- Parameters to fit: {', '.join(config.inp_params)}")
-    logger.info(f"---- Output directory: {Path(config.outdir).absolute()}")
+    logger.info(f"-- Data: {Path(config.data_input).absolute()}")
+    logger.info(f"-- Simulation: {Path(config.sim_input).absolute()}")
+    logger.info(f"-- Parameters to fit: {', '.join(config.fitted_params)}")
+    logger.info(f"-- Output directory: {Path(config.OUTPUT_DIR).absolute()}")
 
     return config
 
@@ -345,10 +320,15 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--CONFIG",
+        "CONFIG_FILE",
         type=str,
-        default="",
         help="Path to YAML configuration file (required)",
+    )
+
+    parser.add_argument(
+        "OUTPUT_DIR",
+        type=str,
+        help="Path to output directory (required)",
     )
 
     parser.add_argument(
@@ -358,9 +338,9 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--DEBUG",
+        "--DEBUG_RUN",
         action="store_true",
-        help="Enable debug mode with verbose output",
+        help="Run 3 MCMC iterations with DEBUG-level logging output",
     )
 
     parser.add_argument(
@@ -373,26 +353,6 @@ def get_args() -> argparse.Namespace:
         "--NOWEIGHT",
         action="store_true",
         help="Disable reweighting function (use for unweighted sims like G10, C11)",
-    )
-
-    parser.add_argument(
-        "--CMD_DATA",
-        type=str,
-        default=None,
-        help="Command-line override for SALT2mu data input file",
-    )
-
-    parser.add_argument(
-        "--CMD_SIM",
-        type=str,
-        default=None,
-        help="Command-line override for SALT2mu simulation input file",
-    )
-
-    parser.add_argument(
-        "--USE_MPI",
-        action="store_true",
-        help="Use MPI to distribute process",
     )
 
     parser.add_argument(
@@ -413,13 +373,6 @@ def get_args() -> argparse.Namespace:
         default="emcee",
         choices=["emcee", "zeus", "nautilus"],
         help="MCMC sampler to use: 'emcee' (default), 'zeus', or 'nautilus'",
-    )
-
-    parser.add_argument(
-        "--NWALKERS",
-        type=int,
-        default=None,
-        help="Number of MCMC walkers for emcee/zeus (default: 2 * ndim)",
     )
 
     return parser.parse_args()
@@ -470,9 +423,9 @@ def main() -> int:
     and runs either a test evaluation or full MCMC sampling.
 
     Two independent concerns are controlled separately:
-        - ``debug`` (from --DEBUG/--TEST_RUN): controls short-run behavior
+        - ``debug`` (from --DEBUG_RUN/--TEST_RUN): controls short-run behavior
           (3 iterations, no HDF5 backend, SALT2mu optmask=1).
-        - ``debug_logging`` (from --DEBUG, --TEST_RUN, or --DEBUG_FULL):
+        - ``debug_logging`` (--TEST_RUN, or --DEBUG_FULL):
           controls log verbosity (DEBUG level to console and log files).
 
     For MPI runs, only the master process (rank 0) performs full setup.
@@ -483,89 +436,52 @@ def main() -> int:
         Exit code (0 for success).
     """
     # Import here to avoid circular imports
-    from dust2dusty.dust2dust import (
+    from dust2dusty.likelihood_worker import (
         _init_worker,
         log_probability,
     )
     from dust2dusty.mcmc import MCMC
-    from dust2dusty.utils import init_salt2mu_realdata, input_cleaner
+    from dust2dusty.utils import input_cleaner
 
     # Check MPI status early - workers should not do heavy setup
+    USE_MPI = False
     rank, size = _get_mpi_info()
     is_master = rank == 0
 
     # Ensure any unhandled exception on *any* rank aborts the whole MPI job
     # instead of leaving the other ranks hanging forever.
     if size > 1:
+        USE_MPI = True
         _install_mpi_excepthook()
 
     if is_master:
         # Master process (rank 0) does full setup
         args = get_args()
-        debug = args.DEBUG or args.TEST_RUN
-        debug_logging = debug or args.DEBUG_FULL
-        setup_logging(debug=debug_logging, verbose=args.VERBOSE)
+        # Set debug flag
+        debug = args.TEST_RUN or args.DEBUG_RUN or args.DEBUG_FULL
+        setup_logging(debug=debug, verbose=args.VERBOSE)
         logger = get_logger()
         logger.info(__dust2dust_str__)
 
-        config = load_config(args.CONFIG, args, logger)
+        config = _load_config(args, logger, USE_MPI=USE_MPI)
         add_file_handler(str(Path(config.outdir) / "logs" / "master.log"))
         logger.info("Master log file created.")
 
-        realdata_salt2mu_results = init_salt2mu_realdata(config, logger, debug=debug)
-
-        pos, nwalkers, ndim = input_cleaner(
-            config.inp_params,
-            config.paramshapesdict,
-            config.splitdict,
-            config.DISTRIBUTION_PARAMETERS,
-            config.parameter_initialization,
-            config.PARAMETER_OVERRIDES,
-            walkfactor=2,
-        )
-
-        if config.NWALKERS is not None and config.SAMPLER in ("emcee", "zeus"):
-            if config.NWALKERS < 2 * ndim:
-                logger.warning(
-                    f"--NWALKERS={config.NWALKERS} is less than 2*ndim={2*ndim}. "
-                    f"Using {2*ndim} walkers instead."
-                )
-                config.NWALKERS = 2 * ndim
-            walkfactor = config.NWALKERS // ndim
-            pos, nwalkers, ndim = input_cleaner(
-                config.inp_params,
-                config.paramshapesdict,
-                config.splitdict,
-                config.DISTRIBUTION_PARAMETERS,
-                config.parameter_initialization,
-                config.PARAMETER_OVERRIDES,
-                walkfactor=walkfactor,
-            )
-            logger.info(f"Walker count overridden to {nwalkers} (--NWALKERS={config.NWALKERS})")
+        realdata_salt2mu_results = _init_salt2mu_realdata(config, logger, debug=debug)
 
         # Test run mode - single likelihood evaluation (no MPI needed)
         if config.TEST_RUN:
             _init_worker(config, realdata_salt2mu_results, debug=debug)
-            expanded_names = pconv(
-                config.inp_params,
-                config.paramshapesdict,
-                config.splitdict,
-                config.DISTRIBUTION_PARAMETERS,
-            )
-            theta = [config.params[name]["start"] for name in expanded_names]
-            logger.info(f"Test run result: {log_probability(theta, last=True)}")
+            _, p0_init, _, _, _ = get_sampled_par_names_and_init(cfg)
+
+            logger.info(f"Test run result: {log_probability(p0_init, last=True)}")
             sys.exit(0)
 
         # Full MCMC run
         MCMC(
             config,
-            pos,
-            nwalkers,
-            ndim,
             realdata_salt2mu_results,
             debug=debug,
-            debug_logging=debug_logging,
-            sampler=config.SAMPLER,
         )
 
         logger.info("DUST2DUST(Y) complete.")

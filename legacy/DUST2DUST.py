@@ -85,7 +85,7 @@ class Config:
 
     Attributes organized by purpose:
     - File paths: data_input, sim_input, simref_file, outdir, chains
-    - Parameters: inp_params, params, paramshapesdict, splitdict, splitparam, parameter_initialization, splitarr
+    - Parameters: inp_params, params, param_dists, splitdict, splitparam, parameter_initialization, splitarr
     - Command-line overrides: CMD_DATA, CMD_SIM
     - Flags: single, debug, NOWEIGHT
     """
@@ -163,7 +163,7 @@ class Config:
     # Parameter configuration
     inp_params: List[str] = field(default_factory=list)
     params: List[float] = field(default_factory=list)
-    paramshapesdict: Dict[str, str] = field(default_factory=dict)
+    param_dists: Dict[str, str] = field(default_factory=dict)
     splitdict: Dict[str, Dict[str, float]] = field(default_factory=dict)
     splitparam: str = "HOST_LOGMASS"
     parameter_initialization: Dict[str, List[Any]] = field(default_factory=dict)
@@ -200,7 +200,7 @@ class Config:
             # Parameter configuration
             inp_params=config_dict["INP_PARAMS"],
             params=config_dict.get("PARAMS", []),
-            paramshapesdict=config_dict["PARAMSHAPESDICT"],
+            param_dists=config_dict["PARAM_DISTS"],
             splitdict=config_dict["SPLITDICT"],
             splitparam=config_dict.get("SPLITPARAM", "HOST_LOGMASS"),
             parameter_initialization=config_dict["PARAMETER_INITIALIZATION"],
@@ -330,7 +330,7 @@ def load_config(config_path: str, args: argparse.Namespace) -> Config:
         "DATA_INPUT",
         "SIM_INPUT",
         "INP_PARAMS",
-        "PARAMSHAPESDICT",
+        "PARAM_DISTS",
         "SPLITDICT",
         "PARAMETER_INITIALIZATION",
         "SPLITARR",
@@ -446,7 +446,7 @@ def thetaconverter(theta):
     """
     thetadict = {}
     extparams = pconv(
-        config.inp_params, config.paramshapesdict, config.splitdict
+        config.inp_params, config.param_dists, config.splitdict
     )  # expanded list of all variables. len is ndim.
     for p in config.inp_params:
         thetalist = []
@@ -487,7 +487,7 @@ def thetawriter(theta, key, names=False):
 
 def input_cleaner(
     INP_PARAMS,
-    PARAMSHAPESDICT,
+    PARAM_DISTS,
     SPLITDICT,
     PARAMETER_INITIALIZATION,
     parameter_overrides,
@@ -512,7 +512,7 @@ def input_cleaner(
                nwalkers: number of MCMC walkers
                ndim: number of dimensions (parameters)
     """
-    plist = pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT)
+    plist = pconv(INP_PARAMS, PARAM_DISTS, SPLITDICT)
     nwalkers = len(plist) * walkfactor
     for element in parameter_overrides.keys():
         plist.remove(element)
@@ -532,7 +532,7 @@ def input_cleaner(
     # END input_cleaner
 
 
-def pconv(INP_PARAMS, paramshapesdict, splitdict):
+def pconv(INP_PARAMS, param_dists, splitdict):
     """
     Convert input parameters to expanded parameter list accounting for distribution shapes and splits.
 
@@ -1161,7 +1161,7 @@ def log_likelihood(realdata, connection, theta, returnall: bool = False, debug: 
     out_result = LL_Creator(realdata, connection, inparr, returnall=returnall)
     # print(
     #     "for ",
-    #     pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT),
+    #     pconv(INP_PARAMS, PARAM_DISTS, SPLITDICT),
     #     " parameters = ",
     #     theta,
     #     "we found an LL of",

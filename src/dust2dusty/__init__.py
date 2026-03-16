@@ -40,8 +40,8 @@ __version__: str = "0.1.0"
 __author__: str = "B. Popovic, D. Brout, B. Carreres, M. Acevedo"
 
 # Import main components for convenient access
-from dust2dusty.cli import Config, load_config
-from dust2dusty.dust2dust import (
+from dust2dusty import cli, utils
+from dust2dusty.likelihood_worker import (
     log_likelihood,
     log_prior,
     log_probability,
@@ -49,13 +49,6 @@ from dust2dusty.dust2dust import (
 from dust2dusty.log import get_logger, setup_logging
 from dust2dusty.mcmc import MCMC
 from dust2dusty.salt2mu import SALT2mu
-from dust2dusty.utils import (
-    init_salt2mu_realdata,
-    input_cleaner,
-    norm_hist_to_data,
-    pconv,
-    subprocess_to_snana,
-)
 
 __all__ = [
     # Version info

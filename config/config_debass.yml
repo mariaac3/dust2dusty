@@ -15,54 +15,60 @@
 # SIMREF_FILE - if using bounding functions, point to the SNANA input that contains these bounding functions.
 
 DATA_INPUT: /project2/rkessler/SURVEYS/DEBASS/USERS/mariaace/DR1/parent_pops/SALT2mu_DATA.input
-SIM_INPUT:  /project2/rkessler/SURVEYS/DEBASS/USERS/mariaace/DR1/parent_pops/SALT2mu_SIM.input
+SIM_INPUT: /project2/rkessler/SURVEYS/DEBASS/USERS/mariaace/DR1/parent_pops/SALT2mu_SIM.input
 OUTDIR: /project2/rkessler/SURVEYS/DEBASS/USERS/mariaace/DR1/d2d_upgrades/DEBASS_OUTPUTS/
 SIMREF_FILE: /scratch/midway2/rkessler/PIPPIN_OUTPUT/MA_DEBASS_DR1/1_SIM/D2D_SIM/PIP_MA_DEBASS_DR1_D2D_SIM.input
 
 ### INPUT OPTIONS ###
-INP_PARAMS: ['c', 'x1', 'RV', 'EBV', 'beta'] #The parameters to be fitted.
-PARAMSHAPESDICT: {'c': 'Gaussian', 'x1': 'Skewed Gaussian', 'RV':'Gaussian', 'EBV':'Exponential', 'beta':'Gaussian'} #The shapes of these parameters.
+FITTED_PARAMS: ["c", "x1", "RV", "EBV", "beta"] #The parameters to be fitted.
+PARAM_DISTS: {
+        "c": "Gaussian",
+        "x1": "Skewed Gaussian",
+        "RV": "Gaussian",
+        "EBV": "Exponential",
+        "beta": "Gaussian",
+    } #The shapes of these parameters.
 SPLITPARAM: HOST_LOGMASS
 TRUEPARAM: HOST_LOGMASS
-SPLITDICT: {'RV': {'HOST_LOGMASS': 10 }, 'EBV': {'HOST_LOGMASS': 10}} #A nested dictionary informing any splits.
+SPLITDICT: { "RV": { "HOST_LOGMASS": 10 }, "EBV": { "HOST_LOGMASS": 10 } } #A nested dictionary informing any splits.
 PARAMS:
-  c_mu:
-    start: -0.08827198
-  c_std:
-    start: 0.05043889
-  x1_mu:
-    start: 0.0
-  x1_std_l:
-    start: 1.0
-  x1_std_r:
-    start: 1.0
-  RV_mu_HOST_LOGMASS_low:
-    start: 2.95953092
-  RV_mu_HOST_LOGMASS_high:
-    start: 1.19440396
-  RV_std_HOST_LOGMASS_low:
-    start: 1.99422843
-  RV_std_HOST_LOGMASS_high:
-    start: 0.72706128
-  EBV_Tau_HOST_LOGMASS_low:
-    start: 0.09966235
-  EBV_Tau_HOST_LOGMASS_high:
-    start: 0.10151627
-  beta_mu:
-    start: 1.7478346
-  beta_std:
-    start: 0.27062389
+    c_mu:
+        start: -0.08827198
+    c_std:
+        start: 0.05043889
+    x1_mu:
+        start: 0.0
+    x1_std_l:
+        start: 1.0
+    x1_std_r:
+        start: 1.0
+    RV_mu_HOST_LOGMASS_low:
+        start: 2.95953092
+    RV_mu_HOST_LOGMASS_high:
+        start: 1.19440396
+    RV_std_HOST_LOGMASS_low:
+        start: 1.99422843
+    RV_std_HOST_LOGMASS_high:
+        start: 0.72706128
+    EBV_Tau_HOST_LOGMASS_low:
+        start: 0.09966235
+    EBV_Tau_HOST_LOGMASS_high:
+        start: 0.10151627
+    beta_mu:
+        start: 1.7478346
+    beta_std:
+        start: 0.27062389
 
 # SPLITARR is the array to generate over for multi dimensional GENPDFS.
 # method: arange (evenly spaced by step) or linspace (evenly spaced by count)
 # args: [start, stop, step_or_count]
 SPLITARR:
-  HOST_LOGMASS:
-    method: arange
-    args: [5, 15, 1]
-  SIM_ZCMB:
-    method: linspace
-    args: [-2.4, 2.6, 3]
+    HOST_LOGMASS:
+        method: arange
+        args: [5, 15, 1]
+    SIM_ZCMB:
+        method: linspace
+        args: [-2.4, 2.6, 3]
 
 ### DEFAULTS ###
 # Right now the dictionary entries are made by hand, and need to match any split options.
@@ -74,68 +80,68 @@ SPLITARR:
 #   bounds: [lower_bound, upper_bound] for the parameter
 
 PARAMETER_INITIALIZATION:
-  c_mu:
-    start: -0.077
-    stdev: 0.01
-    require_positive: false
-    bounds: [-0.3, -0.04]
-  c_std:
-    start: 0.058
-    stdev: 0.01
-    require_positive: true
-    bounds: [0.01, 0.2]
-  x1_mu:
-    start: 0.0
-    stdev: 0.2
-    require_positive: false
-    bounds: [-3, 3]
-  x1_std_l:
-    start: 1.0
-    stdev: 0.1
-    require_positive: true
-    bounds: [0.3, 3]
-  x1_std_r:
-    start: 1.0
-    stdev: 0.1
-    require_positive: true
-    bounds: [0.3, 3]
-  RV_mu_HOST_LOGMASS_low:
-    start: 3.026
-    stdev: 0.38
-    require_positive: true
-    bounds: [0.8, 4]
-  RV_mu_HOST_LOGMASS_high:
-    start: 2.138
-    stdev: 0.25
-    require_positive: true
-    bounds: [0.8, 4]
-  RV_std_HOST_LOGMASS_low:
-    start: 1.481
-    stdev: 0.42
-    require_positive: true
-    bounds: [0.25, 4]
-  RV_std_HOST_LOGMASS_high:
-    start: 1.06
-    stdev: 0.43
-    require_positive: true
-    bounds: [0.25, 4]
-  EBV_Tau_HOST_LOGMASS_low:
-    start: 0.09
-    stdev: 0.02
-    require_positive: true
-    bounds: [0.05, 0.2]
-  EBV_Tau_HOST_LOGMASS_high:
-    start: 0.11
-    stdev: 0.02
-    require_positive: true
-    bounds: [0.05, 0.2]
-  beta_mu:
-    start: 2.064
-    stdev: 0.17
-    require_positive: false
-    bounds: [1, 3]
-  beta_std:
-    start: 0.308
-    stdev: 0.08
-    require_positive: true
-    bounds: [0, 1]
+    c_mu:
+        start: -0.077
+        stdev: 0.01
+        require_positive: false
+        bounds: [-0.3, -0.04]
+    c_std:
+        start: 0.058
+        stdev: 0.01
+        require_positive: true
+        bounds: [0.01, 0.2]
+    x1_mu:
+        start: 0.0
+        stdev: 0.2
+        require_positive: false
+        bounds: [-3, 3]
+    x1_std_l:
+        start: 1.0
+        stdev: 0.1
+        require_positive: true
+        bounds: [0.3, 3]
+    x1_std_r:
+        start: 1.0
+        stdev: 0.1
+        require_positive: true
+        bounds: [0.3, 3]
+    RV_mu_HOST_LOGMASS_low:
+        start: 3.026
+        stdev: 0.38
+        require_positive: true
+        bounds: [0.8, 4]
+    RV_mu_HOST_LOGMASS_high:
+        start: 2.138
+        stdev: 0.25
+        require_positive: true
+        bounds: [0.8, 4]
+    RV_std_HOST_LOGMASS_low:
+        start: 1.481
+        stdev: 0.42
+        require_positive: true
+        bounds: [0.25, 4]
+    RV_std_HOST_LOGMASS_high:
+        start: 1.06
+        stdev: 0.43
+        require_positive: true
+        bounds: [0.25, 4]
+    EBV_Tau_HOST_LOGMASS_low:
+        start: 0.09
+        stdev: 0.02
+        require_positive: true
+        bounds: [0.05, 0.2]
+    EBV_Tau_HOST_LOGMASS_high:
+        start: 0.11
+        stdev: 0.02
+        require_positive: true
+        bounds: [0.05, 0.2]
+    beta_mu:
+        start: 2.064
+        stdev: 0.17
+        require_positive: false
+        bounds: [1, 3]
+    beta_std:
+        start: 0.308
+        stdev: 0.08
+        require_positive: true
+        bounds: [0, 1]

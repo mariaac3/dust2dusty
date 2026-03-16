@@ -63,7 +63,7 @@ def prep_config(args, config):
     OUTDIR = ""
     CHAINS = config["CHAINS"]
     PARAMS = config["PARAMS"]
-    PARAMSHAPESDICT = config["PARAMSHAPESDICT"]
+    PARAM_DISTS = config["PARAM_DISTS"]
     SPLITDICT = config["SPLITDICT"]
     CLEANDICT = config["CLEANDICT"]
     SPLITARR = config["SPLITARR"]
@@ -118,7 +118,7 @@ def prep_config(args, config):
         CMD_SIM,
         PARAMS,
         SIM_INPUT,
-        PARAMSHAPESDICT,
+        PARAM_DISTS,
         SPLITDICT,
         CLEANDICT,
         SPLITARR,
@@ -262,7 +262,7 @@ def thetaconverter(
 ):  # takes in theta and returns a dictionary of what cuts to make when reading/writing theta
     thetadict = {}
     extparams = pconv(
-        INP_PARAMS, PARAMSHAPESDICT, SPLITDICT
+        INP_PARAMS, PARAM_DISTS, SPLITDICT
     )  # expanded list of all variables. len is ndim.
     for p in INP_PARAMS:
         thetalist = []
@@ -289,7 +289,7 @@ def thetawriter(
 
 
 # def input_cleaner(INP_PARAMS, CLEANDICT, override, walkfactor=2):  #this function takes in the input parameters and generates the walkers with appropriate dimensions, starting points, walkers, and step size
-#     plist = pconv(INP_PARAMS,PARAMSHAPESDICT, SPLITDICT)
+#     plist = pconv(INP_PARAMS,PARAM_DISTS, SPLITDICT)
 #     for element in override.keys():
 #         plist.remove(element)
 #     pos = np.abs(0.1 * np.random.randn(len(plist)*walkfactor, len(plist)))
@@ -459,7 +459,7 @@ def LL_Creator(
 
 
 def pltting_func(samples, INP_PARAMS, ndim):
-    labels = pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT)
+    labels = pconv(INP_PARAMS, PARAM_DISTS, SPLITDICT)
     for k in override.keys():
         labels.remove(k)
     plt.clf()
@@ -746,7 +746,7 @@ def norm_hist_to_data(datacount, simcount):
 # for simplicity, we are going to ignore the first three parameters of CLEANDICT (loc, scale and IsPositive)
 # and just use a uniform prior specified by the 2 params in entry 3
 def make_nautilus_prior(INP_PARAMS, CLEANDICT, override, walkfactor=2):
-    plist = pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT)
+    plist = pconv(INP_PARAMS, PARAM_DISTS, SPLITDICT)
     for element in override.keys():
         plist.remove(element)
     prior = nautilus.Prior()
@@ -764,7 +764,7 @@ def make_nautilus_prior(INP_PARAMS, CLEANDICT, override, walkfactor=2):
 # this is just bounds checking which is not needed for bounded priors used in nested sampling
 # def log_prior(theta, debug=False): #goes through expanded input parameters and checks that they are all within range. If any are not, returns negative infinity.
 #     thetadict = thetaconverter(theta)
-#     plist = pconv(INP_PARAMS,PARAMSHAPESDICT, SPLITDICT)
+#     plist = pconv(INP_PARAMS,PARAM_DISTS, SPLITDICT)
 #     if DEBUG: print('plist', plist)
 #     tlist = False #if all parameters are good, this remains false
 #     for key in thetadict.keys():
@@ -810,7 +810,7 @@ def log_likelihood(theta, connection=False, returnall=False, pid=0, genpdf_only=
                 inp,
                 SPLITDICT,
                 thetawriter(theta, inp),
-                PARAMSHAPESDICT[inp],
+                PARAM_DISTS[inp],
                 shapedict,
                 simdict,
                 array_conv(inp, SPLITDICT, SPLITARR),
@@ -894,7 +894,7 @@ def log_likelihood(theta, connection=False, returnall=False, pid=0, genpdf_only=
         out_result = LL_Creator(resparr, connection.beta, connection.sigint)
         print(
             "for ",
-            pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT),
+            pconv(INP_PARAMS, PARAM_DISTS, SPLITDICT),
             theta,
             " we found an LL of",
             out_result,
@@ -905,7 +905,7 @@ def log_likelihood(theta, connection=False, returnall=False, pid=0, genpdf_only=
         out_result = LL_Creator(resparr, connection.beta, connection.sigint)
         print(
             "for ",
-            pconv(INP_PARAMS, PARAMSHAPESDICT, SPLITDICT),
+            pconv(INP_PARAMS, PARAM_DISTS, SPLITDICT),
             " parameters = ",
             theta,
             "we found an LL of",
@@ -1065,7 +1065,7 @@ config = load_config(args.CONFIG)
     CMD_SIM,
     PARAMS,
     SIM_INPUT,
-    PARAMSHAPESDICT,
+    PARAM_DISTS,
     SPLITDICT,
     CLEANDICT,
     SPLITARR,

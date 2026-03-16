@@ -17,9 +17,14 @@ import numpy as np
 import schwimmbad
 from numpy.typing import NDArray
 
-from dust2dusty.dust2dust import _init_worker, cleanup_worker, log_likelihood, log_probability
+from dust2dusty.likelihood_worker import (
+    _init_worker,
+    cleanup_worker,
+    log_likelihood,
+    log_probability,
+)
 from dust2dusty.log import get_logger, setup_logging
-from dust2dusty.utils import pconv, write_chain_to_text
+from dust2dusty.utils import get_sampled_par_names_and_init, write_chain_to_text
 
 if TYPE_CHECKING:
     from dust2dusty.cli import Config
@@ -29,15 +34,10 @@ logger: logging.Logger = get_logger()
 
 def MCMC(
     config: Config | None,
-    pos: NDArray[np.float64] | None,
-    nwalkers: int,
-    ndim: int,
     realdata_salt2mu_results: dict[str, Any] | None,
     debug: bool = False,
-    debug_logging: bool = False,
-    max_iterations: int = 100000,
+    max_iterations: int = 100_000,
     convergence_check_interval: int = 100,
-    sampler: str = "emcee",
 ) -> None:
     """
     Run MCMC sampling using emcee or nautilus.
@@ -89,8 +89,8 @@ def MCMC(
         - Saves thinned/posterior samples to: {outdir}/chains/{data_input}-samples_thinned.npz
     """
     # Validate sampler choice first (before any MPI logic)
-    if sampler not in ("emcee", "nautilus"):
-        raise ValueError(f"Unknown sampler '{sampler}'. Choose 'emcee' or 'nautilus'.")
+    if config.SAMPLER not in ("emcee", "nautilus"):
+        raise ValueError(f"Unknown sampler '{config.SAMPLER}'. Choose 'emcee' or 'nautilus'.")
 
     # Detect worker vs master before accessing config attributes.
     # Nautilus manages its own MPI workers via MPIPoolExecutor; schwimmbad
@@ -107,43 +107,53 @@ def MCMC(
         # Set up basic logging for this worker process
         setup_logging(debug=False)
         # Receive initialization data from master
-        worker_config, worker_realdata, worker_debug = comm.bcast(None, root=0)
+        worker_config, worker_realdata, likelihood_parameter, worker_debug = comm.bcast(
+            None, root=0
+        )
         sys.stdout.flush()
-        _init_worker(worker_config, worker_realdata, worker_debug)
+        _init_worker(worker_config, worker_realdata, likelihood_parameters, worker_debug)
         # Now enter the pool and wait for tasks
         with schwimmbad.MPIPool() as pool:
             pool.wait()
         sys.exit(0)
 
     # MASTER #
+    par_names, p0_mu, p0_std, par_bounds, log_sampling = get_sampled_par_names_and_init(cfg)
+    emcee_nwalkers = int(2 * (n_proc - 1))
+
+    likelihood_parameter = {
+        "par_names": par_names,
+        "par_bounds": par_bounds,
+        "log_sampling": log_sampling,
+    }
 
     # Build the chain file (used by both samplers)
-    chain_file = Path(
-        config.outdir + "chains/" + config.data_input.split(".")[0].split("/")[-1] + "-chains.h5"
-    )
+    chain_file = config.OUTPUT_DIR / "chains"
+    chain_file /= config.data_input.stem + "-chains.h5"
+
     # Show log info
     logger.info("=" * 60)
     logger.info(f"Starting MCMC sampling ({sampler})...")
     logger.info(f"  Dimensions: {ndim}")
-    logger.info(f"  Parameters: {', '.join(config.inp_params)}")
+    logger.info(f"  Parameters: {', '.join(par_names)}")
     if not debug:
         logger.info(f"  Chain file: {chain_file}")
-    if sampler in ("emcee", "zeus"):
-        logger.info(f"  Walkers: {nwalkers}")
+    if sampler == "emcee":
+        logger.info(f"  Walkers: {emcee_nwalkers}")
     logger.debug("DEBUG MODE ON")
     logger.info("=" * 60 + "\n")
 
     # Master send instruction to worker for init
-    worker_debug = debug or debug_logging
+
     if config.USE_MPI:
         n_proc = comm.Get_size()
         # Broadcast initialization data to all workers BEFORE creating pool
-        comm.bcast((config, realdata_salt2mu_results, worker_debug), root=0)
+        comm.bcast((config, realdata_salt2mu_results, likelihood_parameter, debug), root=0)
         pool = schwimmbad.MPIPool()
     # Not using MPI
     else:
         pool = schwimmbad.SerialPool()
-        _init_worker(config, realdata_salt2mu_results, worker_debug)
+        _init_worker(config, realdata_salt2mu_results, likelihood_parameter, debug)
         n_proc = 1
 
     with pool:
@@ -167,21 +177,20 @@ def MCMC(
         # Branch: emcee (Ensemble MCMC)
         # ------------------------------------------------------------------
         elif sampler == "emcee":
+            ndim = len(par_names)
+            p0 = np.random.normal(p0_mu, p0_std, size=(emcee_nwalkers, ndim))
             _run_emcee(
                 config=config,
-                pos=pos,
-                nwalkers=nwalkers,
+                par_names=par_names,
+                p0=p0,
+                nwalkers=emcee_nwalkers,
                 ndim=ndim,
                 pool=pool,
-                n_proc=n_proc,
                 debug=debug,
                 chain_file=chain_file,
                 max_iterations=max_iterations,
                 convergence_check_interval=convergence_check_interval,
             )
-
-        else:
-            raise ValueError(f"Unknown sampler '{sampler}'. Choose 'emcee' or 'nautilus'.")
 
         # Shutting down
         cleanup_workers(pool, n_proc, logger)
@@ -195,11 +204,11 @@ def MCMC(
 
 def _run_emcee(
     config,
-    pos,
+    par_names,
+    p0,
     nwalkers,
     ndim,
     pool,
-    n_proc,
     debug,
     chain_file,
     max_iterations,
@@ -252,14 +261,25 @@ def _run_emcee(
         old_tau: float | NDArray = np.inf
 
     # Init sampler
-    sampler_obj = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, backend=backend)
+    sampler_obj = emcee.EnsembleSampler(
+        nwalkers,
+        ndim,
+        log_probability,
+        pool=pool,
+        parameter_names=par_names,
+        backend=backend,
+        moves=[
+            (emcee.moves.DEMove(), 0.8),
+            (emcee.moves.DESnookerMove(), 0.2),
+        ],
+    )
 
     if debug:
-        sampler_obj.run_mcmc(pos, 3)
+        sampler_obj.run_mcmc(p0, 3)
 
         param_names = pconv(
-            config.inp_params,
-            config.paramshapesdict,
+            config.fitted_params,
+            config.param_dists,
             config.splitdict,
             config.DISTRIBUTION_PARAMETERS,
         )
@@ -270,7 +290,7 @@ def _run_emcee(
         write_chain_to_text(
             sampler_obj.get_chain(),
             sampler_obj.get_log_prob(),
-            param_names,
+            sampler_obj.parameter_names,
             debug_chain_file,
         )
         logger.info(f"Debug chains saved to: {debug_chain_file}")
@@ -278,7 +298,7 @@ def _run_emcee(
         return
 
     # Run with convergence monitoring
-    for _ in sampler_obj.sample(pos, iterations=max_iterations, progress=False):
+    for _ in sampler_obj.sample(p0, iterations=max_iterations, progress=False):
         if sampler_obj.iteration % convergence_check_interval:
             continue
 
@@ -319,12 +339,11 @@ def _run_emcee(
     np.savez(autocorr_filename, autocorr=autocorr_history[:autocorr_index])
     logger.info(f"Autocorrelation history saved to: {autocorr_filename}")
 
-    _finalize_emcee(config, sampler_obj, chain_file, nwalkers)
+    _finalize_emcee(sampler_obj, chain_file, nwalkers)
     return None
 
 
 def _finalize_emcee(
-    config,
     sampler_obj,
     chain_file,
     nwalkers,
@@ -443,8 +462,8 @@ def _run_nautilus(
 
     # Build Prior from parameter bounds
     param_names = pconv(
-        config.inp_params,
-        config.paramshapesdict,
+        config.fitted_params,
+        config.param_dists,
         config.splitdict,
         config.DISTRIBUTION_PARAMETERS,
     )

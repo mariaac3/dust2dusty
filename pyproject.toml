@@ -67,6 +67,7 @@ Issues = "https://github.com/blc56/dust2dusty/issues"
 
 [project.scripts]
 dust2dusty = "dust2dusty.cli:main"
+d2d_plot_chains = "dust2dusty.plot_chains:main"
 
 [tool.setuptools.packages.find]
 where = ["./src"]
