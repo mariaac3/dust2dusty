@@ -130,6 +130,7 @@ class Config:
     VERBOSE: bool = False
     SAMPLER: str = "emcee"
     NWALKERS: int | None = None
+    resume: bool = False
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any], args: argparse.Namespace) -> Config:
@@ -162,6 +163,7 @@ class Config:
             VERBOSE=args.VERBOSE,
             SAMPLER=args.SAMPLER,
             USE_MPI=args.USE_MPI,  # MPI is auto-detected
+            resume=bool(args.RESUME),
         )
 
     def __post_init__(self):
@@ -369,6 +371,17 @@ def get_args() -> argparse.Namespace:
         help="MCMC sampler to use: 'emcee' (default), 'zeus', or 'nautilus'",
     )
 
+    parser.add_argument(
+        "--RESUME",
+        type=str,
+        default=None,
+        metavar="OLD_OUTPUT_DIR",
+        help=(
+            "Resume chains from a previous run. Provide the path to the old output directory. "
+            "Chains and config will be copied into OUTPUT_DIR before sampling continues."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -386,6 +399,62 @@ def _get_mpi_info() -> tuple[int, int]:
         return comm.Get_rank(), comm.Get_size()
     except ImportError:
         return 0, 1
+
+
+def _handle_resume(
+    config: Config,
+    resume_dir: Path,
+    logger: logging.Logger,
+) -> None:
+    """
+    Copy chains and config from a previous run into the new output directory.
+
+    Searches for HDF5 chain files in `resume_dir/chains/` and copies them
+    into the corresponding subdirectory of the new output directory.  Also
+    copies any YAML config files found at the root of `resume_dir` under a
+    `resumed_from_` prefix so the provenance is preserved.
+
+    Args:
+        config: Config for the current (new) run.  `config.OUTPUT_DIR` is
+            used as the destination.
+        resume_dir: Path to the previously completed (or interrupted) output
+            directory whose chains should be continued.
+        logger: Logger instance for progress messages.
+
+    Raises:
+        FileNotFoundError: If `resume_dir` does not exist.
+        RuntimeError: If no chain files are found in `resume_dir/chains/`.
+    """
+    resume_dir = Path(resume_dir)
+    if not resume_dir.exists():
+        raise FileNotFoundError(f"Resume directory not found: {resume_dir.absolute()}")
+
+    new_outdir = Path(config.OUTPUT_DIR)
+    old_chains_dir = resume_dir / "chains"
+    new_chains_dir = new_outdir / "chains"
+
+    # Copy chain files (HDF5)
+    chain_files = list(old_chains_dir.glob("*.h5")) if old_chains_dir.exists() else []
+    if not chain_files:
+        raise RuntimeError(
+            f"No chain files (*.h5) found in {old_chains_dir}. "
+            "Cannot resume without an existing chain."
+        )
+
+    for chain_file in chain_files:
+        dest = new_chains_dir / chain_file.name
+        shutil.copy2(chain_file, dest)
+        logger.info(f"Copied chain: {chain_file.name} -> {dest}")
+
+    # Copy YAML config files from root of old outdir for provenance
+    for cfg_file in resume_dir.glob("*.yml"):
+        dest = new_outdir / f"resumed_from_{cfg_file.name}"
+        shutil.copy2(cfg_file, dest)
+        logger.info(f"Copied old config: {cfg_file.name} -> {dest.name}")
+
+    logger.info(
+        f"Resume setup complete: {len(chain_files)} chain file(s) copied from {resume_dir}"
+    )
 
 
 def _install_mpi_excepthook() -> None:
@@ -460,6 +529,9 @@ def main() -> int:
         config = _load_config(args, logger, USE_MPI=USE_MPI)
         add_file_handler(str(Path(config.OUTPUT_DIR) / "logs" / "master.log"))
         logger.info("Master log file created.")
+
+        if args.RESUME:
+            _handle_resume(config, Path(args.RESUME), logger)
 
         realdata_salt2mu_results = _init_salt2mu_realdata(config, logger, debug=debug)
 

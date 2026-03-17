@@ -247,10 +247,20 @@ def _run_emcee(
     # Create backend file to save chain progress
     if debug:
         backend = None
+        p0_start = p0
     else:
         backend = emcee.backends.HDFBackend(chain_file)
-        backend.reset(nwalkers, ndim)
-        logger.debug(f"Chain storage initialized: {chain_file}")
+        if config.resume:
+            # Continue from where the chain stopped — do NOT reset the backend
+            p0_start = backend.get_last_sample()
+            logger.info(
+                f"Resuming emcee chain from iteration {backend.iteration} "
+                f"({chain_file.name})"
+            )
+        else:
+            backend.reset(nwalkers, ndim)
+            p0_start = p0
+            logger.debug(f"Chain storage initialized: {chain_file}")
 
         # Track autocorrelation time history
         autocorr_history = np.empty(max_iterations // convergence_check_interval)
@@ -272,7 +282,7 @@ def _run_emcee(
     )
 
     if debug:
-        sampler_obj.run_mcmc(p0, 3)
+        sampler_obj.run_mcmc(p0_start, 3)
 
         debug_chain_file = chain_file.with_name(chain_file.stem + "-debug_chains").with_suffix(
             ".txt"
@@ -289,7 +299,7 @@ def _run_emcee(
         return
 
     # Run with convergence monitoring
-    for _ in sampler_obj.sample(p0, iterations=max_iterations, progress=False):
+    for _ in sampler_obj.sample(p0_start, iterations=max_iterations, progress=False):
         if sampler_obj.iteration % convergence_check_interval:
             continue
 
@@ -468,9 +478,12 @@ def _run_nautilus(
         resume=not debug,
     )
 
-    logger.info(
-        f"nautilus sampler created. Chain file: {chain_file if not debug else '(none, debug mode)'}"
-    )
+    if config.resume and not debug:
+        logger.info(f"Resuming nautilus sampler from existing chain: {chain_file.name}")
+    else:
+        logger.info(
+            f"nautilus sampler created. Chain file: {chain_file if not debug else '(none, debug mode)'}"
+        )
 
     run_kwargs: dict[str, Any] = {"verbose": True}
     if debug:
