@@ -88,14 +88,14 @@ def MCMC(
           (emcee only)
         - Saves thinned/posterior samples to: {outdir}/chains/{data_input}-samples_thinned.npz
     """
-    # Validate sampler choice first (before any MPI logic)
-    if config.SAMPLER not in ("emcee", "nautilus"):
-        raise ValueError(f"Unknown sampler '{config.SAMPLER}'. Choose 'emcee' or 'nautilus'.")
-
     # Detect worker vs master before accessing config attributes.
     # Nautilus manages its own MPI workers via MPIPoolExecutor; schwimmbad
     # worker-wait only applies to emcee/zeus.
     is_worker = config is None
+
+    # Validate sampler choice (only on master where config is available)
+    if not is_worker and config.SAMPLER not in ("emcee", "nautilus"):
+        raise ValueError(f"Unknown sampler '{config.SAMPLER}'. Choose 'emcee' or 'nautilus'.")
 
     if is_worker or config.USE_MPI:
         from mpi4py import MPI
@@ -111,15 +111,15 @@ def MCMC(
             None, root=0
         )
         sys.stdout.flush()
-        _init_worker(worker_config, worker_realdata, likelihood_parameters, worker_debug)
+        _init_worker(worker_config, worker_realdata, likelihood_parameter, worker_debug)
         # Now enter the pool and wait for tasks
         with schwimmbad.MPIPool() as pool:
             pool.wait()
         sys.exit(0)
 
     # MASTER #
-    par_names, p0_mu, p0_std, par_bounds, log_sampling = get_sampled_par_names_and_init(cfg)
-    emcee_nwalkers = int(2 * (n_proc - 1))
+    par_names, p0_mu, p0_std, par_bounds, log_sampling = get_sampled_par_names_and_init(config)
+    ndim = len(par_names)
 
     likelihood_parameter = {
         "par_names": par_names,
@@ -128,18 +128,16 @@ def MCMC(
     }
 
     # Build the chain file (used by both samplers)
-    chain_file = config.OUTPUT_DIR / "chains"
+    chain_file = Path(config.OUTPUT_DIR) / "chains"
     chain_file /= config.data_input.stem + "-chains.h5"
 
     # Show log info
     logger.info("=" * 60)
-    logger.info(f"Starting MCMC sampling ({sampler})...")
+    logger.info(f"Starting MCMC sampling ({config.SAMPLER})...")
     logger.info(f"  Dimensions: {ndim}")
     logger.info(f"  Parameters: {', '.join(par_names)}")
     if not debug:
         logger.info(f"  Chain file: {chain_file}")
-    if sampler == "emcee":
-        logger.info(f"  Walkers: {emcee_nwalkers}")
     logger.debug("DEBUG MODE ON")
     logger.info("=" * 60 + "\n")
 
@@ -156,19 +154,19 @@ def MCMC(
         _init_worker(config, realdata_salt2mu_results, likelihood_parameter, debug)
         n_proc = 1
 
+    emcee_nwalkers = int(2 * (n_proc - 1)) if n_proc > 1 else max(2 * ndim, 8)
+
     with pool:
         # ------------------------------------------------------------------
         # Branch: nautilus (importance sampling + efficient space exploration using NN)
         # ------------------------------------------------------------------
-        if sampler == "nautilus":
+        if config.SAMPLER == "nautilus":
             _run_nautilus(
                 config=config,
-                realdata_salt2mu_results=realdata_salt2mu_results,
-                ndim=ndim,
+                par_names=par_names,
+                par_bounds=par_bounds,
                 pool=pool,
-                n_proc=n_proc,
                 debug=debug,
-                debug_logging=debug_logging,
                 chain_file=chain_file,
                 max_iterations=max_iterations,
             )
@@ -176,8 +174,7 @@ def MCMC(
         # ------------------------------------------------------------------
         # Branch: emcee (Ensemble MCMC)
         # ------------------------------------------------------------------
-        elif sampler == "emcee":
-            ndim = len(par_names)
+        elif config.SAMPLER == "emcee":
             p0 = np.random.normal(p0_mu, p0_std, size=(emcee_nwalkers, ndim))
             _run_emcee(
                 config=config,
@@ -277,12 +274,6 @@ def _run_emcee(
     if debug:
         sampler_obj.run_mcmc(p0, 3)
 
-        param_names = pconv(
-            config.fitted_params,
-            config.param_dists,
-            config.splitdict,
-            config.DISTRIBUTION_PARAMETERS,
-        )
         debug_chain_file = chain_file.with_name(chain_file.stem + "-debug_chains").with_suffix(
             ".txt"
         )
@@ -408,12 +399,10 @@ def _finalize_emcee(
 
 def _run_nautilus(
     config,
-    realdata_salt2mu_results,
-    ndim,
+    par_names,
+    par_bounds,
     pool,
-    n_proc,
     debug,
-    debug_logging,
     chain_file,
     max_iterations,
 ):
@@ -461,20 +450,14 @@ def _run_nautilus(
         sys.exit(1)
 
     # Build Prior from parameter bounds
-    param_names = pconv(
-        config.fitted_params,
-        config.param_dists,
-        config.splitdict,
-        config.DISTRIBUTION_PARAMETERS,
-    )
-    prior = Prior()
-    for name in param_names:
-        lo, hi = config.parameter_initialization[name]["bounds"]
-        from scipy.stats import uniform as scipy_uniform
+    from scipy.stats import uniform as scipy_uniform
 
+    prior = Prior()
+    for name, bounds in zip(par_names, par_bounds):
+        lo, hi = bounds
         prior.add_parameter(name, dist=scipy_uniform(lo, hi - lo))
 
-    logger.info(f"nautilus Prior built for {len(param_names)} parameters.")
+    logger.info(f"nautilus Prior built for {len(par_names)} parameters.")
 
     sampler_obj = Sampler(
         prior,

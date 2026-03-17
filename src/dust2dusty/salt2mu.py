@@ -29,13 +29,14 @@ Typical Workflow:
 from __future__ import annotations
 
 import logging
+import operator
 import subprocess
 import time
-from collections import defaultdict
 from contextlib import nullcontext
 from io import StringIO
+from itertools import product
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -68,13 +69,15 @@ class SALT2mu:
     """
 
     # Default value ranges for parameter arrays
-    DEFAULT_PARAMETER_RANGES: ClassVar[dict[str, NDArray[np.float64]]] = {
+    DEFAULT_PARAMETER_GRID: ClassVar[dict[str, NDArray[np.float64]]] = {
         "c": np.arange(-0.5, 0.5, 0.001),
         "x1": np.arange(-5, 5, 0.01),
         "RV": np.arange(0, 8, 0.1),
         "EBV": np.arange(0.0, 1.5, 0.02),
         "EBVZ": np.arange(0.0, 1.5, 0.02),
     }
+
+    _OPERATOR_MAP = {"low": operator.lt, "high": operator.gt}
 
     # Parameter name mappings for SALT2mu format
     PARAM_TO_SALT2MU: ClassVar[dict[str, str]] = {
@@ -104,7 +107,7 @@ class SALT2mu:
         debug: bool = False,
         timeout=600,
         log_dir: Path | None = None,
-        genpdf_param_grid: dict = {},
+        salt2mu_genpdf_grid: dict = {},
     ) -> None:
         """
         Initialize SALT2mu connection.
@@ -141,8 +144,8 @@ class SALT2mu:
 
         # Init genpdf grid
         self.genpdf_grid_param_range = {
-            **genpdf_grid_param_range,
-            **self.DEFAULT_PARAMETER_RANGES,
+            **salt2mu_genpdf_grid,
+            **self.DEFAULT_PARAMETER_GRID,
         }
         for key, val in self.genpdf_grid_param_range.items():
             if isinstance(val, dict):
@@ -247,7 +250,7 @@ class SALT2mu:
     def iterate(
         self,
         theta_dic: dict[str, float],
-        fitted_par_dic: Config,
+        fitted_par_dic: dict,
         last: bool = False,
     ) -> None:
         """
@@ -271,13 +274,6 @@ class SALT2mu:
 
         for param_name, param_dic in fitted_par_dic.items():
             param_dist_vals_dic = {k: v for k, v in theta_dic.items() if param_name in k}
-
-            genpdf_grid: defaultdic(NDarray[np.float])
-            if param_name not in ["beta", "alpha"]:
-                genpdf_grid[param_name] = self.genpdf_grid_param_range[param_name]
-                if "splits" in param_dic.keys():
-                    for split_p in param_dic["splits"].keys():
-                        genpdf_grid[split_p] = self.genpdf_grid_param_range[split_p]
 
             self.write_generic_PDF(
                 param_name,
@@ -360,8 +356,8 @@ class SALT2mu:
         self.salt2mu_results["siginterr"] = 0.0036  # DEFAULT VALUE
         return True
 
+    @staticmethod
     def get_1d_asym_gauss(
-        self,
         mean: float,
         lhs: float,
         rhs: float,
@@ -384,10 +380,11 @@ class SALT2mu:
         probs = np.exp(-0.5 * ((arr - mean) / lhs) ** 2)
         probs[arr > mean] = np.exp(-0.5 * ((arr[arr > mean] - mean) / rhs) ** 2)
         probs = probs / np.max(probs)
-        return arr, probs
+        return probs
 
+    @staticmethod
     def get_1d_exponential(
-        self, tau: float, arr: NDArray[np.float64]
+        tau: float, arr: NDArray[np.float64]
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """
         Generate exponential probability distribution.
@@ -401,10 +398,11 @@ class SALT2mu:
         """
         probs = (tau**-1) * np.exp(-arr / tau)
         probs = probs / np.max(probs)
-        return arr, probs
+        return probs
 
+    @staticmethod
     def get_1d_lognormal(
-        self, mu: float, std: float, arr: NDArray[np.float64]
+        mu: float, std: float, arr: NDArray[np.float64]
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """
         Generate log-normal probability distribution.
@@ -423,7 +421,7 @@ class SALT2mu:
         """
         probs = np.exp(mu + std * arr)
         probs = probs / np.max(probs)
-        return arr, probs
+        return probs
 
     def write_header(self, names: list[str]) -> None:
         """
@@ -439,52 +437,30 @@ class SALT2mu:
             self.genpdf_crosstalk_file.write(" " + name)
         self.genpdf_crosstalk_file.write(" PROB\n")
 
-    def write_generic_header(self, inp: str, varnames: list[str]) -> None:
+    def write_generic_header(self, pdf_var_name: str, pdf_dep_var_names: list[str]) -> None:
         """
         Write VARNAMES header line for PDF block.
 
         Args:
-            inp: Main variable name (e.g., 'SIM_c', 'SIM_RV').
-            varnames: List of additional variable names for splits
+            pdf_var_name: Main variable name (e.g., 'SIM_c', 'SIM_RV').
+            pdf_dep_var_names: List of additional variable names for splits
                 (e.g., ['HOST_LOGMASS'] for 2D PDF).
 
         Side Effects:
             Writes "VARNAMES: inp varname1 varname2 ... PROB\\n" to crosstalk file.
         """
-        self.genpdf_crosstalk_file.write(f"VARNAMES: {inp}")
-        for name in varnames:
-            self.genpdf_crosstalk_file.write(" " + name)
-        self.genpdf_crosstalk_file.write(" PROB \n")
+        self.genpdf_crosstalk_file.write(
+            f"VARNAMES: {pdf_var_name} " + " ".join(pdf_dep_var_names) + " PROB\n"
+        )
 
-    def write3Dprobs(
+    def write_GENPDF(
         self,
-        arr: NDArray[np.float64],
-        z: float,
-        mass: float,
-        probs: NDArray[np.float64],
-    ) -> None:
+        genpdf_var_grid: NDArray[np.float64],
+        genpdf_split_grid: list[NDArray[np.float64]],
+        genpdf_probs_grid: NDArray[np.float64],
+    ):
         """
-        Write 3D probability distribution to crosstalk file.
-
-        Args:
-            arr: Array of primary variable values.
-            z: Redshift value (scalar).
-            mass: Mass value (scalar).
-            probs: Array of probability values (same length as arr).
-
-        Side Effects:
-            Writes "PDF: value z mass prob" lines to crosstalk file.
-        """
-        bigstr = ""
-        for a, p in zip(arr, probs):
-            bigstr += "PDF: %.3f %.2f %.2f %.3f\n" % (a, z, mass, p)
-        self.genpdf_crosstalk_file.write(bigstr)
-
-    def write2Dprobs(
-        self, arr: NDArray[np.float64], mass: float, probs: NDArray[np.float64]
-    ) -> None:
-        """
-        Write 2D probability distribution to crosstalk file.
+        Write ND probability distribution to crosstalk file.
 
         Args:
             arr: Array of primary variable values.
@@ -494,26 +470,15 @@ class SALT2mu:
         Side Effects:
             Writes "PDF: value mass prob" lines to crosstalk file.
         """
+        format_sring = "PDF: {:.3f}" + "{:8.2f}" * len(genpdf_split_grid) + "  {:8.3f}\n"
         bigstr = ""
-        for a, p in zip(arr, probs):
-            bigstr += "PDF: %.3f %.2f %.3f\n" % (a, mass, p)
-        self.genpdf_crosstalk_file.write(bigstr)
 
-    def write1Dprobs(self, arr: NDArray[np.float64], probs: NDArray[np.float64]) -> None:
-        """
-        Write 1D probability distribution to crosstalk file.
-
-        Args:
-            arr: Array of variable values.
-            probs: Array of probability values (same length as arr).
-
-        Side Effects:
-            Writes "PDF: value prob" lines to crosstalk file with trailing newline.
-        """
-        bigstr = ""
-        for a, p in zip(arr, probs):
-            bigstr += "PDF: %.3f %.3f\n" % (a, p)
-        bigstr += "\n"
+        for a, *sp, p in zip(
+            genpdf_var_grid.flatten(),
+            *[sp.flatten() for sp in genpdf_split_grid],
+            genpdf_probs_grid.flatten(),
+        ):
+            bigstr += format_sring.format(a, *sp, p)
         self.genpdf_crosstalk_file.write(bigstr)
 
     def write_iterbegin(self) -> None:
@@ -568,59 +533,10 @@ class SALT2mu:
         for _ in range(3):
             self.genpdf_crosstalk_file.write("\n")
 
-    def write_1D_PDF(self, varname: str, params: list[float], arr: NDArray[np.float64]) -> None:
-        """
-        Write 1D PDF to crosstalk file.
-
-        Deprecated: Use write_generic_PDF instead.
-
-        Args:
-            varname: Variable name.
-            params: Distribution parameters [mean, lhs, rhs] or [mean, std].
-            arr: Array of x values.
-        """
-        self.writeheader([varname])
-        try:
-            mean, lhs, rhs = params
-        except ValueError:
-            mean = params[0]
-            lhs = params[1]
-            rhs = lhs
-        arr, probs = self.get_1d_asym_gauss(mean, lhs, rhs, arr)
-        self.write1Dprobs(arr, probs)
-
-    @staticmethod
-    def NAndR(fp: StringIO) -> tuple[list[str], int]:
-        """
-        Parse SALT2mu output to find variable names and data start row.
-
-        Searches for VARNAMES line to get column headers and identifies
-        where actual data rows begin.
-
-        Args:
-            fp: File-like object (StringIO) with SALT2mu output text.
-
-        Returns:
-            Tuple of (Names, Startrow) where:
-                - Names: List of column names
-                - Startrow: Integer row number where data begins
-        """
-        Names: list[str] = []
-        Startrow: int = 0
-        for i, line in enumerate(fp):
-            if line.startswith("VARNAMES:"):
-                line = line.replace(",", " ")
-                line = line.replace("\n", "")
-                Names = line.split()
-            elif line.startswith("SN") or line.startswith("ROW:") or line.startswith("GAL"):
-                Startrow = i
-                break
-        return Names, Startrow
-
     def write_generic_PDF(
         self,
         param_name: str,
-        param_dict: dict,
+        param_dic: dict,
         param_dist_vals_dic: NDArray[np.float64],
     ) -> str | None:
         """
@@ -656,89 +572,64 @@ class SALT2mu:
 
         # Handle splits
         split_pars = []
-        if "splits" in param_dict:
-            split_pars = list(param_dict["splits"].keys())
+        if "splits" in param_dic:
+            split_pars = list(param_dic["splits"].keys())
         split_par_SALT2MU = [self.PARAM_TO_SALT2MU[split_p] for split_p in split_pars]
 
+        # Write header
         self.write_generic_header(par_name_SALT2MU, split_par_SALT2MU)
 
-        # No split parameters => 1D PDF
-        if len(split_pars) == 0:
-            genpdf_grid = self.genpdf_grid_param_range[param_name]
-            genpdf_var_grid, genpdf_probs_grid = self.shape_assigner(
-                param_name, param_dist_vals_dic, param_dict["dist"], genpdf_grid
-            )
-            if param_name == "RV":
-                genpdf_probs_grid[genpdf_var_grid < 0.4] = 0
-            self.write1Dprobs(genpdf_var_grid, genpdf_probs_grid)
-        # 1 split parameter => 2D PDF
-        elif len(split_pars) == 1:
-            param_dist_vals_subdic = {}
-            for l in ["low", "high"]:
-                param_dist_vals_subdic[l] = {
-                    k.replace(f"_{split_pars[0]}_{l}", ""): v
-                    for k, v in param_dist_vals_dic.items()
-                    if f"_{split_pars[0]}_{l}" in k
-                }
+        # Init GENPDF distribution grid
+        genpdf_par_grid, *genpdf_split_grid = np.meshgrid(
+            self.genpdf_grid_param_range[param_name],
+            *[self.genpdf_grid_param_range[split_p] for split_p in split_pars],
+        )
 
-            genpdf_par, genpdf_split = np.meshgrid(
-                self.genpdf_grid_param_range[param_name],
-                self.genpdf_grid_param_range[split_pars[0]],
-            )
-            genpdf_probs_grid = np.zeros_like(genpdf_grid)
-            genpdf_probs_grid[genpdf_split < param_dict["splits"][split_pars[0]]] = (
-                self.shape_assigner(
-                    param_name, param_dist_vals_subdic["low"], param_dict["dist"], genpdf_par
-                )
-            )
+        genpdf_split_grid_dic = {
+            split_p: genpdf_split_g
+            for split_p, genpdf_split_g in zip(split_pars, genpdf_split_grid)
+        }
+        genpdf_probs_grid = np.zeros_like(genpdf_par_grid)
 
-            genpdf_probs_grid[genpdf_split >= param_dict["splits"][split_pars[0]]] = (
-                self.shape_assigner(
-                    param_name, param_dist_vals_subdic["high"], param_dict["dist"], genpdf_par
-                )
-            )
-            if v == "RV":
-                genpdf_probs_grid[genpdf_probs_grid < 0.4] = 0
+        # all splits possible combinations
+        split_combs = product(
+            *[[f"{split_p}_{l}" for l in ["low", "high"]] for split_p in split_pars]
+        )
+        for comb in split_combs:
+            key = "_" + "_".join(comb)
 
-            self.write2Dprobs(
-                genpdf_par.flatten(), genpdf_split.flatten(), genpdf_probs_grid.flatten()
-            )
-        # 2 split parameters => 3D PDF
-        elif len(splits) == 2:
-            splitparams = self.shape_interpret(params, inp, shape, shapedict, split)
-            for sp1 in arr[1]:
-                if np.around(sp1, 3) < splitloc[0]:
-                    for sp2 in arr[2]:
-                        if np.around(sp2, 1) < splitloc[1]:
-                            arrs, probs = self.shape_assigner(splitparams[0], shape, arr[0])
-                            if inp == "RV":
-                                probs[arrs < 0.4] = 0
-                            self.write3Dprobs(arrs, sp1, sp2, probs)
-                        else:
-                            arrs, probs = self.shape_assigner(splitparams[1], shape, arr[0])
-                            if inp == "RV":
-                                probs[arrs < 0.4] = 0
-                            self.write3Dprobs(arrs, sp1, sp2, probs)
+            # 1D case
+            if key == "_":
+                key = ""
+
+            param_dist_vals_subdic = {
+                k.replace(f"{key}", ""): v for k, v in param_dist_vals_dic.items() if key in k
+            }
+
+            mask = np.ones_like(genpdf_probs_grid, dtype=bool)
+            for split_p in split_pars:
+                if f"{split_p}_low" in key:
+                    mask &= self._OPERATOR_MAP["low"](
+                        genpdf_split_grid_dic[f"{split_p}"], param_dic["splits"][f"{split_p}"]
+                    )
+                elif f"{split_p}_high" in key:
+                    mask &= self._OPERATOR_MAP["high"](
+                        genpdf_split_grid_dic[f"{split_p}"], param_dic["splits"][f"{split_p}"]
+                    )
                 else:
-                    for sp2 in arr[2]:
-                        if np.around(sp2, 1) < splitloc[1]:
-                            arrs, probs = self.shape_assigner(splitparams[2], shape, arr[0])
-                            if inp == "RV":
-                                probs[arrs < 0.4] = 0
-                            self.write3Dprobs(arrs, sp1, sp2, probs)
-                        else:
-                            arrs, probs = self.shape_assigner(splitparams[3], shape, arr[0])
-                            if inp == "RV":
-                                probs[arrs < 0.4] = 0
-                            self.write3Dprobs(arrs, sp1, sp2, probs)
+                    raise ValueError(f"{split_p} key not found")
+                genpdf_probs_grid[mask] = self.shape_assigner(
+                    param_name, param_dic["dist"], param_dist_vals_subdic, genpdf_par_grid[mask]
+                )
+        self.write_GENPDF(genpdf_par_grid, genpdf_split_grid, genpdf_probs_grid)
         self.genpdf_crosstalk_file.write("\n")
         return None
 
     def shape_assigner(
         self,
         param_name: str,
-        param_dist_vals_dic: NDArray[np.float64],
         dist_shape: str,
+        param_dist_vals_dic: NDArray[np.float64],
         genpdf_grid: NDArray[np.float64],
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """
@@ -763,8 +654,8 @@ class SALT2mu:
         if dist_shape == "Gaussian":
             return self.get_1d_asym_gauss(
                 param_dist_vals_dic[param_name + "_mu"],
-                param_dist_values[param_name + "_std"],
-                param_dist_values[param_name + "_std"],
+                param_dist_vals_dic[param_name + "_std"],
+                param_dist_vals_dic[param_name + "_std"],
                 genpdf_grid,
             )
         elif dist_shape == "Exponential":
@@ -784,36 +675,3 @@ class SALT2mu:
             )
         else:
             raise ValueError(f"Unknown shape: {dist_shape}")
-
-    def shape_interpret(
-        self,
-        param_dist_values: NDArray[np.float64],
-        par_dic: dict[str, dict[str, float]],
-    ) -> list[NDArray[np.float64]]:
-        """
-        Split params array into sub-arrays for each split combination.
-
-        For parameters with splits, params contains parameters for all
-        split combinations concatenated. This function splits them back out.
-
-        Example:
-            RV with mass split, Gaussian shape:
-            params = [mu_low, std_low, mu_high, std_high]
-            Returns: [[mu_low, std_low], [mu_high, std_high]]
-
-        Args:
-            params: Concatenated array of all distribution parameters.
-            inp: Parameter name.
-            shape: Distribution shape name.
-            shapedict: Dictionary mapping shapes to parameter names.
-            split: Dictionary defining splits for this parameter.
-
-        Returns:
-            List of parameter arrays, one per split combination.
-            Length = 2^(number of split variables).
-        """
-        temp: list[NDArray[np.float64]] = []
-        n_shape_params = len(self.DISTRIBUTION_PARAMETERS[par_dic["dist"]])
-        for i in range(len(par_dic["splits"].keys()) * 2):
-            temp.append(param_dist_values[i * n_shape_params : (i + 1) * n_shape_params])
-        return temp

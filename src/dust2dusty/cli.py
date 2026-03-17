@@ -20,7 +20,6 @@ import shutil
 import sys
 from dataclasses import _MISSING_TYPE, dataclass, field, fields
 from pathlib import Path
-from pickle import NONE
 from typing import Any, ClassVar
 
 import numpy as np
@@ -85,15 +84,6 @@ class Config:
         "HOST_COLOR": "COLOR",
     }
 
-    # Default value ranges for parameter arrays
-    DEFAULT_PARAMETER_RANGES: ClassVar[dict[str, NDArray[np.float64]]] = {
-        "c": np.arange(-0.5, 0.5, 0.001),
-        "x1": np.arange(-5, 5, 0.01),
-        "RV": np.arange(0, 8, 0.1),
-        "EBV": np.arange(0.0, 1.5, 0.02),
-        "EBVZ": np.arange(0.0, 1.5, 0.02),
-    }
-
     # Split parameter format specifications
     SPLIT_PARAMETER_FORMATS: ClassVar[dict[str, str]] = {
         "HOST_LOGMASS": "HOST_LOGMASS(2,0:20)",
@@ -123,7 +113,9 @@ class Config:
     chains: str | None = None
 
     # Parameter configuration
-    fitted_params: list[str] = field(default_factory=dict)
+    salt2mu_genpdf_grid: dict[str, Any] = field(default_factory=dict)
+    fitted_params: dict[str, Any] = field(default_factory=dict)
+    splitparam: str = "HOST_LOGMASS"
     parameter_inits: dict[str, dict[str, Any]] = field(default_factory=dict)
     splitarr: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -159,6 +151,8 @@ class Config:
             # Parameter configuration
             fitted_params=config_dict["FITTED_PARAMS"],
             parameter_inits=config_dict["PARAMETER_INITS"],
+            splitparam=config_dict.get("SPLITPARAM", "HOST_LOGMASS"),
+            salt2mu_genpdf_grid=config_dict.get("SALT2MU_GENPDF_GRID", {}),
             # Command-line arguments
             OUTPUT_DIR=Path(args.OUTPUT_DIR),
             TEST_RUN=args.TEST_RUN,
@@ -255,7 +249,7 @@ def _load_config(args: argparse.Namespace, logger: logging.Logger, USE_MPI=False
     """
     config_file = Path(args.CONFIG_FILE)
     if not config_file.exists():
-        logger.error(f"Configuration file not found: {config_path}")
+        logger.error(f"Configuration file not found: {config_file}")
         sys.exit(1)
 
     # Load YAML file
@@ -263,7 +257,7 @@ def _load_config(args: argparse.Namespace, logger: logging.Logger, USE_MPI=False
         with open(config_file) as cfgfile:
             config_dict = yaml.safe_load(cfgfile)
     except yaml.YAMLError as e:
-        logger.error(f"Invalid YAML syntax in {config_path}")
+        logger.error(f"Invalid YAML syntax in {config_file}")
         logger.error(e)
         sys.exit(1)
 
@@ -299,7 +293,7 @@ def _load_config(args: argparse.Namespace, logger: logging.Logger, USE_MPI=False
     logger.info("Configuration finalized successfully:")
     logger.info(f"-- Data: {Path(config.data_input).absolute()}")
     logger.info(f"-- Simulation: {Path(config.sim_input).absolute()}")
-    logger.info(f"-- Parameters to fit: {', '.join(config.fitted_params)}")
+    logger.info(f"-- Parameters to fit: {', '.join(config.fitted_params.keys())}")
     logger.info(f"-- Output directory: {Path(config.OUTPUT_DIR).absolute()}")
 
     return config
@@ -464,7 +458,7 @@ def main() -> int:
         logger.info(__dust2dust_str__)
 
         config = _load_config(args, logger, USE_MPI=USE_MPI)
-        add_file_handler(str(Path(config.outdir) / "logs" / "master.log"))
+        add_file_handler(str(Path(config.OUTPUT_DIR) / "logs" / "master.log"))
         logger.info("Master log file created.")
 
         realdata_salt2mu_results = _init_salt2mu_realdata(config, logger, debug=debug)
@@ -472,7 +466,7 @@ def main() -> int:
         # Test run mode - single likelihood evaluation (no MPI needed)
         if config.TEST_RUN:
             _init_worker(config, realdata_salt2mu_results, debug=debug)
-            _, p0_init, _, _, _ = get_sampled_par_names_and_init(cfg)
+            _, p0_init, _, _, _ = get_sampled_par_names_and_init(config)
 
             logger.info(f"Test run result: {log_probability(p0_init, last=True)}")
             sys.exit(0)
@@ -488,7 +482,7 @@ def main() -> int:
     else:
         # Worker processes (rank > 0) go directly to MCMC with None values
         # They will receive config via the pool initializer
-        MCMC(None, None, 0, 0, None, debug=False)
+        MCMC(None, None, debug=False)
 
     return 0
 

@@ -64,10 +64,10 @@ CLI (cli.py: main)
 
 ### Module Responsibilities
 
-- **`cli.py`** — `Config` dataclass (YAML loading, validation), output directory creation, `PARAM_TO_SALT2MU`/`SUBPROCESS_TO_SNANA` mappings, `main()` entry point.
-- **`likelihood_worker.py`** — `log_probability()`, `log_likelihood()`, `log_prior()`. Worker-local globals (`_WORKER_*`) store per-process SALT2mu state. Observables: color (c), stretch (x1), Hubble residuals (MURES) and RMS by mass bin, beta, sigint.
+- **`cli.py`** — `Config` dataclass (YAML loading, validation), output directory creation, `SUBPROCESS_TO_SNANA` mapping, `main()` entry point. `fitted_params` is a **dict** (not a list) mapping parameter names to their config dicts.
+- **`likelihood_worker.py`** — `log_probability()`, `log_likelihood()`, `log_prior()`. Worker-local globals (`_WORKER_*`) store per-process SALT2mu state. Observables: color (c), stretch (x1), Hubble residuals (MURES) and RMS by mass bin, beta, sigint. `log_probability` converts the raw theta array to `theta_dic` (applying de-logging) before calling `log_prior` and `log_likelihood`, both of which receive a `dict[str, NDArray]`.
 - **`mcmc.py`** — `MCMC()`: supports `emcee` (default), `zeus`, and `nautilus` samplers, selected via `--SAMPLER`. emcee uses an HDF5 backend with manual convergence monitoring (chain > 100×tau AND tau change < 1%); zeus uses `AutocorrelationCallback` + `SaveProgressCallback`; nautilus is an importance sampler with neural networks that builds a uniform `Prior` from `parameter_initialization` bounds, calls `log_likelihood` directly (prior handled internally), and saves `log_z` (Bayesian evidence) alongside posterior samples. emcee/zeus share schwimmbad pool/MPI setup; nautilus bypasses schwimmbad and uses `MPIPoolExecutor` directly (or `pool=None` for serial). Internal helpers `_run_emcee` / `_run_zeus` / `_run_nautilus` / `_finalize_*` contain sampler-specific logic.
-- **`salt2mu.py`** — `SALT2mu` class: launches persistent `SALT2mu.exe` subprocess, communicates via files (`pdf_crosstalk_file` written by Python, `salt2mu_out` written by subprocess).
+- **`salt2mu.py`** — `SALT2mu` class: launches persistent `SALT2mu.exe` subprocess, communicates via files (`pdf_crosstalk_file` written by Python, `salt2mu_out` written by subprocess). Holds class-level `PARAM_TO_SALT2MU` mapping (moved here from `cli.py`) and `DEFAULT_PARAMETER_GRID` for PDF evaluation arrays. PDF writing uses the unified `write_GENPDF` method supporting arbitrary N-dimensional splits (replaces old `write1Dprobs`/`write2Dprobs`/`write3Dprobs`). `_OPERATOR_MAP` drives split boundary logic via `operator.lt`/`operator.gt`. Distribution helpers (`get_1d_asym_gauss`, `get_1d_exponential`, `get_1d_lognormal`) are `@staticmethod` and return only the probability array.
 - **`utils.py`** — `pconv()` parameter expansion, `input_cleaner()` walker initialization, histogram normalization, `cmd_exe()` for building SALT2mu command strings.
 - **`log.py`** — `setup_logging()`, `get_logger()`, `setup_salt2mu_logger()` for per-worker logging.
 
@@ -111,6 +111,7 @@ See `config/` for example YAML files. Key sections:
 - `PARAMS` — initial parameter values (before expansion)
 - `SPLITARR` — arrays for evaluating PDFs at split boundaries
 - `PARAMETER_INITIALIZATION` — per-parameter start, stdev, bounds, `require_positive`
+- `salt2mu_genpdf_grid` — optional overrides for the default parameter grid ranges used when writing PDFs (merged with `SALT2mu.DEFAULT_PARAMETER_GRID`)
 
 ## Key Files
 

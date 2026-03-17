@@ -88,7 +88,7 @@ def _init_salt2mu_realdata(
 
     if debug:
         index = "DEBUG"
-    outdir = Path(config.outdir)
+    outdir = Path(config.OUTPUT_DIR)
 
     subprocess_log_data = outdir / f"{directory}/{index}_SALT2MU_SUBPROCESS_REALDATA_LOG.STDOUT"
     logger.debug(f"Create file: {subprocess_log_data.absolute()}")
@@ -119,7 +119,7 @@ def _init_salt2mu_realdata(
     return real_data.salt2mu_results
 
 
-def get_sampled_par_names_and_init(config) -> list[str]:
+def get_sampled_par_names_and_init(config) -> tuple[list[str], NDArray, NDArray, NDArray, NDArray]:
     sampled_par_names = []
     for p, pdic in config.fitted_params.items():
         if "splits" not in pdic:
@@ -155,59 +155,12 @@ def get_sampled_par_names_and_init(config) -> list[str]:
         [
             config.parameter_inits[p]["bounds"]
             if not log_sampling[i]
-            else [-np.inf, np.log(config.parameter_inits[p]["bounds"][-1])]
+            else [-np.inf, config.parameter_inits[p]["bounds"][-1]]
             for i, p in enumerate(sampled_par_names)
         ]
     )
 
     return sampled_par_names, p0_mu, p0_std, par_bounds, log_sampling
-
-
-def input_cleaner(config) -> tuple[NDArray[np.float64], int, int]:
-    """
-    Initialize MCMC walker starting positions with appropriate constraints.
-
-    Generates initial walker positions for emcee sampler, ensuring all
-    parameters start within their valid bounds and with appropriate spreads.
-
-    Args:
-        fitted_params: List of parameter names to fit (e.g., ['c', 'RV', 'EBV']).
-        param_dists: Maps parameter to distribution shape.
-        splitdict: Nested dict defining parameter splits.
-        distribution_parameters: Dict mapping distribution names to parameter names.
-        parameter_initialization: Dictionary containing initialization info for
-            each expanded parameter. Each entry is a dict with keys:
-            start, stdev, require_positive, bounds (a [lower, upper] list).
-        parameter_overrides: Dictionary of parameters to fix (not fit).
-        walkfactor: Multiplier for number of walkers (nwalkers = ndim * walkfactor).
-
-    Returns:
-        Tuple of (pos, nwalkers, ndim) where:
-            - pos: Array of shape (nwalkers, ndim) with initial walker positions
-            - nwalkers: Number of MCMC walkers
-            - ndim: Number of dimensions (parameters)
-    """
-    plist = pconv(fitted_params, param_dists, splitdict, distribution_parameters)
-    nwalkers = len(plist) * walkfactor
-    for element in parameter_overrides.keys():
-        plist.remove(element)
-    pos = np.abs(0.1 * np.random.randn(nwalkers, len(plist)))
-    for entry in range(len(plist)):
-        newpos_param = parameter_initialization[plist[entry]]
-        pos[:, entry] = np.random.normal(
-            newpos_param["start"], newpos_param["stdev"], len(pos[:, entry])
-        )
-        if newpos_param["require_positive"]:
-            pos[:, entry] = np.abs(pos[:, entry])
-        while any(ele < newpos_param["bounds"][0] for ele in pos[:, entry]) or any(
-            ele > newpos_param["bounds"][1] for ele in pos[:, entry]
-        ):
-            pos[:, entry] = np.random.normal(
-                newpos_param["start"], newpos_param["stdev"], len(pos[:, entry])
-            )
-            if newpos_param["require_positive"]:
-                pos[:, entry] = np.abs(pos[:, entry])
-    return pos, nwalkers, len(plist)
 
 
 def subprocess_to_snana(outdir: str, snana_mapping: dict[str, str]) -> str:

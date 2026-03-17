@@ -69,11 +69,11 @@ PARAMETER_INITS:
         p0_std: 0.02
         bounds: [0.05, 0.2]
     EBV_tau_SIM_ZCMB_high_HOST_LOGMASS_low:
-        p0: 0.09
+        p0: 0.07
         p0_std: 0.02
         bounds: [0.05, 0.2]
     EBV_tau_SIM_ZCMB_high_HOST_LOGMASS_high:
-        p0: 0.11
+        p0: 0.05
         p0_std: 0.02
         bounds: [0.05, 0.2]
     beta_mu:
@@ -88,7 +88,7 @@ PARAMETER_INITS:
 # SPLITARR is the array to generate over for multi dimensional GENPDFS.
 # method: arange (evenly spaced by step) or linspace (evenly spaced by count)
 # args: [p0, stop, step_or_count]
-SNANA_GENDPDF_GRID:
+SALT2MU_GENDPDF_GRID:
     HOST_LOGMASS:
         method: arange
         args: [5, 15, 1]

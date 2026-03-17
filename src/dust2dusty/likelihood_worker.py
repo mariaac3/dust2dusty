@@ -76,110 +76,6 @@ _CONFIG: Config | None = None
 
 
 # =============================================================================
-# PARAMETER CONVERSION HELPERS
-# =============================================================================
-
-
-def thetaconverter(theta: NDArray[np.float64]) -> dict[str, list[int]]:
-    """
-    Create mapping from input parameters to theta array indices.
-
-    For each parameter in fitted_params, identifies which positions in the
-    theta array correspond to that parameter's distribution parameters
-    (after expansion for splits).
-
-    Example:
-        If fitted_params = ['c', 'RV'] and expanded params are
-        ['c_mu', 'c_std', 'RV_mu_HOST_LOGMASS_low', 'RV_mu_HOST_LOGMASS_high', ...]
-        then thetadict['c'] = [0, 1] and thetadict['RV'] = [2, 3, ...]
-
-    Args:
-        theta: Array of parameter values (length = ndim).
-
-    Returns:
-        Mapping from parameter name to list of indices in theta array.
-    """
-    thetadict: dict[str, list[int]] = {}
-    extparams = pconv(
-        _CONFIG.fitted_params,
-        _CONFIG.param_dists,
-        _CONFIG.splitdict,
-        _CONFIG.DISTRIBUTION_PARAMETERS,
-    )
-    for p in _CONFIG.fitted_params:
-        thetalist: list[int] = []
-        for n, ep in enumerate(extparams):
-            if p in ep:
-                thetalist.append(n)
-        thetadict[p] = thetalist
-    return thetadict
-
-
-def thetawriter(
-    theta: NDArray[np.float64],
-    key: str,
-    names: bool | list[str] = False,
-) -> NDArray[np.float64] | list[str]:
-    """
-    Extract subset of theta array corresponding to a specific parameter.
-
-    Uses thetaconverter to identify which elements of theta belong to the
-    specified parameter, then returns that slice.
-
-    Args:
-        theta: Array of parameter values (length = ndim).
-        key: Parameter name (e.g., 'c', 'RV', 'EBV').
-        names: If a list, returns parameter names instead of values.
-
-    Returns:
-        Subset of theta values or parameter names for this parameter.
-        E.g., for 'RV' might return [mu_low, std_low, mu_high, std_high].
-    """
-    thetadict = thetaconverter(theta)
-    lowbound = thetadict[key][0]
-    highbound = thetadict[key][-1] + 1
-    if isinstance(names, list):
-        return names[lowbound:highbound]
-    else:
-        return theta[lowbound:highbound]
-
-
-def array_conv(
-    inp: str,
-    splitdict: dict[str, dict[str, float]],
-    splitarr: dict[str, dict[str, Any]],
-) -> list[NDArray[np.float64]]:
-    """
-    Generate arrays for PDF evaluation based on parameter and its splits.
-
-    Creates list of arrays needed to evaluate and write PDF functions for a
-    parameter. First array is the parameter values, subsequent arrays are
-    split variable values.
-
-    Args:
-        inp: Parameter name (e.g., 'c', 'RV', 'EBV').
-        splitdict: Dictionary defining splits for this parameter.
-        splitarr: Dictionary mapping split variables to array generation
-            specs (e.g., {'HOST_LOGMASS': {'method': 'arange', 'args': [5, 15, 1]}}).
-
-    Returns:
-        List of [param_array, split1_array, split2_array, ...].
-        Empty list if inp is 'beta' or 'alpha' (handled differently).
-
-    Example:
-        For RV split on mass: [[0, 0.1, 0.2, ...], [5, 6, 7, ..., 15]]
-    """
-    if inp in ("beta", "alpha"):
-        return []
-    arrlist: list[NDArray[np.float64]] = []
-    arrlist.append(_CONFIG.DEFAULT_PARAMETER_RANGES[inp])
-    if inp in splitdict.keys():
-        for s in splitdict[inp].keys():
-            arrlist.append(generate_split_array(splitarr[s]))
-    return arrlist
-
-
-# =============================================================================
 # DATA PROCESSING
 # =============================================================================
 
@@ -220,7 +116,7 @@ def dffixer(
             k_values = df["ibin_" + k].unique()
             par_pops[k + "_hist"] = np.zeros(len(k_values), dtype=int)
             for i, kv in enumerate(k_values):
-                par_pops[+"_hist"][i] = df["NEVT"][df["ibin_" + k] == kv].sum()
+                par_pops[k + "_hist"][i] = df["NEVT"][df["ibin_" + k] == kv].sum()
 
     lowRMS = dflow.STD_ROBUST.values
     highRMS = dfhigh.STD_ROBUST.values
@@ -265,8 +161,8 @@ def generate_genpdf_varnames(fitted_params: list[str], splitparam: str) -> str:
 
     # Add parameter variables in SALT2mu format
     for param in fitted_params:
-        if param in _CONFIG.PARAM_TO_SALT2MU:
-            salt2mu_name = _CONFIG.PARAM_TO_SALT2MU[param]
+        if param in SALT2mu.PARAM_TO_SALT2MU:
+            salt2mu_name = SALT2mu.PARAM_TO_SALT2MU[param]
             if salt2mu_name not in varnames:
                 varnames.append(salt2mu_name)
 
@@ -325,28 +221,25 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         - 4: Implements randomseed option (default for production)
     """
     optmask = 4
-    directory = "worker_salt2mu_files"
+    outdir = _CONFIG.OUTPUT_DIR / "worker_salt2mu_files"
 
-    outdir = Path(_CONFIG.outdir)
-    subprocess_salt2mu_res = outdir / f"{directory}/{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_RES.DAT"
+    subprocess_salt2mu_res = outdir / f"{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_RES.DAT"
     subprocess_salt2mu_res.touch()
 
-    genpdf_crosstalk_file = outdir / f"{directory}/{_WORKER_INDEX:02d}_GENPDF_PYTHONCROSSTALK.DAT"
+    genpdf_crosstalk_file = outdir / f"{_WORKER_INDEX:02d}_GENPDF_PYTHONCROSSTALK.DAT"
     genpdf_crosstalk_file.touch()
 
     log_dir = outdir / "logs"
     log_dir.mkdir(exist_ok=True)
 
-    subprocess_salt2mu_log = (
-        outdir / f"{directory}/{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_LOG.STDOUT"
-    )
+    subprocess_salt2mu_log = outdir / f"{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_LOG.STDOUT"
     subprocess_salt2mu_log.touch()
 
     # Generate output table specification (color bins x split parameter bins)
     arg_outtable = f"'c(6,-0.2:0.25)*{_CONFIG.SPLIT_PARAMETER_FORMATS[_CONFIG.splitparam]}'"
 
     # Generate GENPDF variable names from input parameters
-    genpdf_names = generate_genpdf_varnames(_CONFIG.fitted_params, _CONFIG.splitparam)
+    genpdf_names = generate_genpdf_varnames(list(_CONFIG.fitted_params.keys()), _CONFIG.splitparam)
 
     cmd = cmd_exe(JOBNAME_SALT2MU, _CONFIG.sim_input) + (
         f"SUBPROCESS_VARNAMES_GENPDF={genpdf_names} "
@@ -360,6 +253,7 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         genpdf_crosstalk_file,
         subprocess_salt2mu_res,
         subprocess_salt2mu_log,
+        salt2mu_genpdf_grid=_CONFIG.salt2mu_genpdf_grid,
         debug=_WORKER_DEBUGFLAG,
         log_dir=log_dir,
     )
@@ -542,7 +436,9 @@ def compute_and_sum_loglikelihoods(
 
 
 def log_likelihood(
-    theta: NDArray[np.float64] | list[float], returnall: bool = False, last: bool = False
+    theta_dic: dict[str, NDArray[np.float64]],
+    returnall: bool = False,
+    last: bool = False,
 ) -> float | tuple[dict, dict, dict, dict]:
     """
     Calculate log-likelihood for proposed parameter values.
@@ -563,15 +459,9 @@ def log_likelihood(
         If returnall=True: tuple of (ll_dict, datacount_dict, simcount_dict, poisson_dict).
         Returns -inf if MAXPROB > 1.001 (PDF hitting boundary).
     """
-    # De-log
-    theta[_LIKELIHOOD_PARAMETERS["log_sampling"]] = np.exp(
-        theta[_LIKELIHOOD_PARAMETERS["log_sampling"]]
-    )
-
-    theta_dic = dict(zip(_LIKELIHOOD_PARAMETERS["par_names"], theta))
 
     # Run SALT2mu with these PDFs
-    _WORKER_SALT2MU_CONNECTION.iterate(theta_dic, _CONFIG.fitted_par, last=last)
+    _WORKER_SALT2MU_CONNECTION.iterate(theta_dic, _CONFIG.fitted_params, last=last)
 
     if _WORKER_SALT2MU_CONNECTION.salt2mu_results["maxprob"] > 1.001:
         logger.warning(
@@ -594,7 +484,7 @@ def log_likelihood(
     return out_result
 
 
-def log_prior(theta: NDArray[np.float64] | list[float]) -> float:
+def log_prior(theta_dic: dict[str, NDArray[np.float64]]) -> float:
     """
     Calculate log-prior probability for parameter values.
 
@@ -604,27 +494,15 @@ def log_prior(theta: NDArray[np.float64] | list[float]) -> float:
     any parameter is outside its allowed range.
 
     Args:
-        theta: Array of parameter values (length = ndim).
+        theta_dic: Dictionary mapping parameter names to values.
 
     Returns:
         0.0 if all parameters within bounds, -np.inf otherwise.
     """
-    thetadict = thetaconverter(theta)
-    plist = pconv(
-        _CONFIG.fitted_params,
-        _CONFIG.param_dists,
-        _CONFIG.splitdict,
-        _CONFIG.DISTRIBUTION_PARAMETERS,
-    )
-    for key in thetadict.keys():
-        temp_ps = thetawriter(theta, key)
-        plist_n = thetawriter(theta, key, names=plist)
-        for t in range(len(temp_ps)):
-            lowb = _CONFIG.parameter_initialization[plist_n[t]]["bounds"][0]
-            highb = _CONFIG.parameter_initialization[plist_n[t]]["bounds"][1]
-            logger.debug(f"Prior on {plist_n[t]} - {temp_ps[t]} is [{lowb}, {highb}]")
-            if not lowb < temp_ps[t] < highb:
-                return -np.inf
+    for (key, value), bounds in zip(theta_dic.items(), _LIKELIHOOD_PARAMETERS["par_bounds"]):
+        if not (bounds[0] < value < bounds[1]):
+            logger.debug(f"Prior on {key} is not in [{bounds[0]}, {bounds[1]}]")
+            return -np.inf
     return 0.0
 
 
@@ -646,18 +524,25 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
     )
     logger.debug(f"   theta: {theta}")
 
+    # De-log
+    theta[_LIKELIHOOD_PARAMETERS["log_sampling"]] = np.exp(
+        theta[_LIKELIHOOD_PARAMETERS["log_sampling"]]
+    )
+
+    theta_dic = dict(zip(_LIKELIHOOD_PARAMETERS["par_names"], theta))
+
     # Prior
-    lp = log_prior(theta)
+    lp = log_prior(theta_dic)
     logger.debug(f"   LogPrior = {lp}")
     if not np.isfinite(lp):
         logger.debug("WARNING! We returned -inf from small parameters!")
         return -np.inf
 
     # Likelihood
-    ll = log_likelihood(theta, **kwargs)
+    ll = log_likelihood(theta_dic, **kwargs)
     logger.debug(f"   LogLik = {ll}")
 
-    logger.debug(f"\n#### END OF ITERATION  {_WORKER_SALT2MU_CONNECTION.iter} ####n\n")
+    logger.debug(f"\n#### END OF ITERATION  {_WORKER_SALT2MU_CONNECTION.iter} ####\n\n")
 
     # Increase iteration number
     _WORKER_SALT2MU_CONNECTION.iter += 1
@@ -713,7 +598,7 @@ def _init_worker(
     if debug:
         logging.getLogger("dust2dusty").setLevel(logging.DEBUG)
 
-    log_path = str(Path(config.outdir) / "logs" / f"worker_{_WORKER_INDEX:02d}.log")
+    log_path = str(Path(config.OUTPUT_DIR) / "logs" / f"worker_{_WORKER_INDEX:02d}.log")
     add_file_handler(log_path)
 
     _WORKER_SALT2MU_CONNECTION = init_salt2mu_worker_connection()
