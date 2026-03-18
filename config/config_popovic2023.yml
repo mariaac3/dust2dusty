@@ -16,7 +16,6 @@
 
 DATA_INPUT: /project2/rkessler/SURVEYS/DEBASS/USERS/mariaace/DR1/d2d_upgrades/SALT2mu_ALL_DATA.input
 SIM_INPUT: /project2/rkessler/SURVEYS/DEBASS/USERS/mariaace/DR1/d2d_upgrades/SALT2mu_ALL_BOUND.input
-OUTDIR: /project2/rkessler/SURVEYS/DEBASS/USERS/mariaace/DR1/d2d_upgrades/des_d2d_rerun_outputs/
 SIMREF_FILE: /scratch/midway2/rkessler/PIPPIN_OUTPUT/BP-DES5YR-DUST2DUST/1_SIM/DES_DUST2DUST/PIP_BP-DES5YR-DUST2DUST_DES_DUST2DUST.input
 
 ### INPUT OPTIONS ###

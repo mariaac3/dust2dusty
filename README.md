@@ -46,7 +46,6 @@ dust2dusty --CONFIG config/my_config.yml --FORCE_OVERRIDE
 
 ```python
 from dust2dusty import setup_logging, get_logger, Config, load_config, init_salt2mu_realdata, MCMC
-from dust2dusty.utils import input_cleaner
 
 # Set up logging
 setup_logging(debug=True)
@@ -57,7 +56,6 @@ config = load_config("config/my_config.yml", args, logger)
 
 # Initialize and run
 realdata = init_salt2mu_realdata(config, logger, debug=True)
-pos, nwalkers, ndim = input_cleaner(...)
 MCMC(config, pos, nwalkers, ndim, realdata, debug=True, sampler="emcee")
 ```
 
@@ -85,7 +83,7 @@ dust2dusty/
 │   ├── mcmc.py          # MCMC sampling (emcee, nautilus)
 │   ├── likelihood_worker.py     # Likelihood, worker init, SALT2mu interface
 │   ├── salt2mu.py       # SALT2mu.exe subprocess wrapper
-│   ├── utils.py         # input_cleaner, pconv, helpers
+│   ├── utils.py         # 
 │   └── log.py           # Shared logging configuration
 ├── tests/               # Test suite
 ├── config/              # Example configuration files

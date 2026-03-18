@@ -41,14 +41,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import pandas as pd
 from numpy.typing import NDArray
 
 from dust2dusty.log import add_file_handler, get_logger
 from dust2dusty.salt2mu import SALT2mu
 from dust2dusty.utils import (
-    cmd_exe,
-    generate_split_array,
+    cmd_salt2mu_exe,
     norm_hist_to_data,
 )
 
@@ -58,10 +56,6 @@ if TYPE_CHECKING:
 # =============================================================================
 # GLOBAL VARIABLES & CONSTANTS
 # =============================================================================
-
-# Constants
-JOBNAME_SALT2MU: str = "SALT2mu.exe"
-NCBINS: int = 6  # Number of color bins
 
 # Module-level logger
 logger: logging.Logger = get_logger()
@@ -73,71 +67,14 @@ _WORKER_SALT2MU_CONNECTION: SALT2mu | None = None
 _WORKER_DEBUGFLAG: bool = False
 _WORKER_INDEX: int | None = None
 _CONFIG: Config | None = None
-
-
-# =============================================================================
-# DATA PROCESSING
-# =============================================================================
-
-
-def dffixer(
-    df: pd.DataFrame,
-) -> tuple[NDArray, NDArray] | dict[str, NDArray] | str:
-    """
-    Extract binned statistics from SALT2mu output dataframe.
-
-    Parses the pandas dataframe returned by SALT2mu to extract color and
-    x1 histograms, Hubble residuals, and scatter statistics split by the
-    splitparam variable (typically HOST_LOGMASS).
-
-    Args:
-        df: pandas DataFrame from SALT2mu output containing binned statistics.
-            Expected columns: ibin_c, ibin_x1, ibin_{splitparam}, NEVT,
-            MURES_SUM, STD_ROBUST.
-
-    Returns:
-        Dictionary with keys: 'mures_high', 'mures_low', 'rms_high', 'rms_low',
-        'nevt_high', 'nevt_low', and optionally 'c_hist' and 'x1_hist' if those
-        columns are present in the dataframe.
-    """
-    low_mask = df[f"ibin_{_CONFIG.splitparam}"] == 0
-
-    dflow = df[low_mask]
-    dfhigh = df[~low_mask]
-
-    lowNEVT = dflow["NEVT"].values
-    highNEVT = dfhigh["NEVT"].values
-    lowrespops = dflow["MURES_SUM"].values
-    highrespops = dfhigh["MURES_SUM"].values
-
-    par_pops = defaultdict(np.ndarray)
-    for k in ["c", "x1"]:
-        if k in df.columns:
-            k_values = df["ibin_" + k].unique()
-            par_pops[k + "_hist"] = np.zeros(len(k_values), dtype=int)
-            for i, kv in enumerate(k_values):
-                par_pops[k + "_hist"][i] = df["NEVT"][df["ibin_" + k] == kv].sum()
-
-    lowRMS = dflow.STD_ROBUST.values
-    highRMS = dfhigh.STD_ROBUST.values
-
-    return {
-        "mures_high": highrespops / dfhigh.NEVT.values,
-        "mures_low": lowrespops / dflow.NEVT.values,
-        "rms_high": highRMS,
-        "rms_low": lowRMS,
-        "nevt_high": highNEVT,
-        "nevt_low": lowNEVT,
-        **par_pops,
-    }
-
+_LIKELIHOOD_PARAMETERS: dict[str, Any] | None = None
 
 # =============================================================================
 # SALT2MU CONNECTION MANAGEMENT
 # =============================================================================
 
 
-def generate_genpdf_varnames(fitted_params: list[str], splitparam: str) -> str:
+def _generate_genpdf_varnames(fitted_params: list[str], split_par: str) -> str:
     """
     Generate SUBPROCESS_VARNAMES_GENPDF string for SALT2mu.
 
@@ -161,14 +98,14 @@ def generate_genpdf_varnames(fitted_params: list[str], splitparam: str) -> str:
 
     # Add parameter variables in SALT2mu format
     for param in fitted_params:
-        if param in SALT2mu.PARAM_TO_SALT2MU:
-            salt2mu_name = SALT2mu.PARAM_TO_SALT2MU[param]
+        if param in SALT2mu._PARAM_TO_SALT2MU:
+            salt2mu_name = SALT2mu._PARAM_TO_SALT2MU[param]
             if salt2mu_name not in varnames:
                 varnames.append(salt2mu_name)
 
     # Add split parameter if not already included
-    if splitparam not in varnames:
-        varnames.insert(1, splitparam)
+    for split_p in split_par:
+        varnames.insert(-1, split_p)
 
     # Always include redshift and beta if not already present
     if "SIM_ZCMB" not in varnames:
@@ -196,7 +133,7 @@ def get_worker_index() -> int:
         return 0
 
 
-def init_salt2mu_worker_connection() -> SALT2mu:
+def _init_salt2mu_worker_connection() -> SALT2mu:
     """
     Initialize connection to SALT2mu.exe subprocess for this worker.
 
@@ -220,34 +157,31 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         - 2: Creates M0DIF file
         - 4: Implements randomseed option (default for production)
     """
-    optmask = 4
-    outdir = _CONFIG.OUTPUT_DIR / "worker_salt2mu_files"
+    salt2mu_outdir = _CONFIG.OUTPUT_DIR / "worker_salt2mu_files"
 
-    subprocess_salt2mu_res = outdir / f"{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_RES.DAT"
+    subprocess_salt2mu_res = salt2mu_outdir / f"{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_RES.DAT"
     subprocess_salt2mu_res.touch()
 
-    genpdf_crosstalk_file = outdir / f"{_WORKER_INDEX:02d}_GENPDF_PYTHONCROSSTALK.DAT"
+    genpdf_crosstalk_file = salt2mu_outdir / f"{_WORKER_INDEX:02d}_GENPDF_PYTHONCROSSTALK.DAT"
     genpdf_crosstalk_file.touch()
 
-    log_dir = outdir / "logs"
-    log_dir.mkdir(exist_ok=True)
-
-    subprocess_salt2mu_log = outdir / f"{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_LOG.STDOUT"
+    subprocess_salt2mu_log = salt2mu_outdir / f"{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_LOG.STDOUT"
     subprocess_salt2mu_log.touch()
 
+    log_dir = _CONFIG.OUTPUT_DIR / "logs"
+    log_dir.mkdir(exist_ok=True)
+
     # Generate output table specification (color bins x split parameter bins)
-    arg_outtable = f"'c(6,-0.2:0.25)*{_CONFIG.SPLIT_PARAMETER_FORMATS[_CONFIG.splitparam]}'"
-
+    arg_outtable = "'c(6,-0.2:0.25)*HOST_LOGMASS(2,0:20)'"
     # Generate GENPDF variable names from input parameters
-    genpdf_names = generate_genpdf_varnames(list(_CONFIG.fitted_params.keys()), _CONFIG.splitparam)
+    genpdf_names = _generate_genpdf_varnames(list(_CONFIG.fitted_params.keys()), _CONFIG.split_pars)
 
-    cmd = cmd_exe(JOBNAME_SALT2MU, _CONFIG.sim_input) + (
+    cmd = cmd_salt2mu_exe(_CONFIG) + (
         f"SUBPROCESS_VARNAMES_GENPDF={genpdf_names} "
         f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} "
-        f"SUBPROCESS_OPTMASK={optmask} "
+        f"SUBPROCESS_OPTMASK=4 "
         f"SUBPROCESS_SIMREF_FILE={_CONFIG.simref_file} "
     )
-
     connection = SALT2mu(
         cmd,
         genpdf_crosstalk_file,
@@ -256,6 +190,7 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         salt2mu_genpdf_grid=_CONFIG.salt2mu_genpdf_grid,
         debug=_WORKER_DEBUGFLAG,
         log_dir=log_dir,
+        split_dist_par=_CONFIG.split_dist_par,
     )
 
     return connection
@@ -267,7 +202,7 @@ def init_salt2mu_worker_connection() -> SALT2mu:
 
 
 def compute_and_sum_loglikelihoods(
-    inparr: dict[str, list[NDArray]],
+    binned_dists: dict[str, list[NDArray]],
     returnall: bool = False,
     rms_weight: float = 1.0,
 ) -> float | tuple[float, dict, dict, dict, dict]:
@@ -347,22 +282,32 @@ def compute_and_sum_loglikelihoods(
 
     # Salt parameters
     for k in ["c", "x1"]:
-        if k + "_hist" in inparr:
-            datacount, simcount, poisson_err, _ = norm_hist_to_data(*inparr[k + "_hist"])
-            ll_dict[k + "_hist"] = -0.5 * np.sum((datacount - simcount) ** 2 / poisson_err**2)
-            datacount_dict[k + "_hist"] = datacount
-            simcount_dict[k + "_hist"] = simcount
-            poisson_dict[k + "_hist"] = poisson_err
+        res_key = f"{k}_hist"
+        if res_key in binned_dists:
+            datacount, simcount, poisson_err = norm_hist_to_data(*binned_dists[res_key])
+            ll_dict[res_key] = -0.5 * np.sum((datacount - simcount) ** 2 / poisson_err**2)
+
+            # DEBUG PURPOSE
+            datacount_dict[res_key] = datacount
+            simcount_dict[res_key] = simcount
+            poisson_dict[res_key] = poisson_err
             logger.debug(
                 f"   - {k}: ({datacount} (data) -  {simcount} (sim))**2 / {poisson_err}**2 = {ll_dict[k + '_hist']}"
             )
 
     for k in ["low", "high"]:
-        mask = inparr["nevt_" + k][0] > 0
+        mask = (binned_dists["nevt_" + k][0] > 0) & (binned_dists["nevt_" + k][1] > 0)
 
-        # MURES
-        data_mures, sim_mures = inparr["mures_" + k]
-        poisson_err_mures = inparr["rms_" + k][0] / np.sqrt(inparr["nevt_" + k][0])
+        # MURES #
+        data_mures, sim_mures = binned_dists["mures_" + k]
+        poisson_err_mures = np.sqrt(
+            sum(
+                (
+                    rms**2 / nevt
+                    for rms, nevt in zip(binned_dists["rms_" + k], binned_dists["nevt_" + k])
+                )
+            )
+        )
 
         data_mures, sim_mures, poisson_err_mures = (
             data_mures[mask],
@@ -371,14 +316,22 @@ def compute_and_sum_loglikelihoods(
         )
 
         ll_dict["mures_" + k] = -0.5 * np.sum((data_mures - sim_mures) ** 2 / poisson_err_mures**2)
+
+        # DEBUG PURPOSE
         datacount_dict["mures_" + k] = data_mures
         simcount_dict["mures_" + k] = sim_mures
         poisson_dict["mures_" + k] = poisson_err_mures
 
-        # RMS
-        data_rms, sim_rms = inparr["rms_" + k]
-        poisson_err_rms = data_rms / np.sqrt(2 * inparr["nevt_" + k][0])
-
+        # RMS #
+        data_rms, sim_rms = binned_dists["rms_" + k]
+        poisson_err_rms = np.sqrt(
+            sum(
+                (
+                    rms**2 / (2 * nevt)
+                    for rms, nevt in zip(binned_dists["rms_" + k], binned_dists["nevt_" + k])
+                )
+            )
+        )
         data_rms, sim_rms, poisson_err_rms = (
             data_rms[mask],
             sim_rms[mask],
@@ -388,6 +341,8 @@ def compute_and_sum_loglikelihoods(
         ll_dict["rms_" + k] = (
             -0.5 * np.sum((data_rms - sim_rms) ** 2 / poisson_err_rms**2) * rms_weight
         )
+
+        # DEBUG PURPOSE
         datacount_dict["rms_" + k] = data_rms
         simcount_dict["rms_" + k] = sim_rms
         poisson_dict["rms_" + k] = poisson_err_rms
@@ -470,16 +425,16 @@ def log_likelihood(
         )
         return -np.inf
 
-    sim_bindf = _WORKER_SALT2MU_CONNECTION.salt2mu_results["bindf"]
-    sim_vals = dffixer(sim_bindf)
-
-    realdata_bindf = _WORKER_REALDATA_SALT2MU_RESULTS["bindf"]
-    realdata_vals = dffixer(realdata_bindf)
-
     # Build dictionary pairing data and simulation values
-    inparr = {key: (realdata_vals[key], sim_vals[key]) for key in realdata_vals.keys()}
+    binned_dists = {
+        key: (
+            _WORKER_REALDATA_SALT2MU_RESULTS["binned_dists"][key],
+            _WORKER_SALT2MU_CONNECTION.salt2mu_results["binned_dists"][key],
+        )
+        for key in _WORKER_REALDATA_SALT2MU_RESULTS["binned_dists"].keys()
+    }
 
-    out_result = compute_and_sum_loglikelihoods(inparr, returnall=returnall)
+    out_result = compute_and_sum_loglikelihoods(binned_dists, returnall=returnall)
 
     return out_result
 
@@ -499,14 +454,15 @@ def log_prior(theta_dic: dict[str, NDArray[np.float64]]) -> float:
     Returns:
         0.0 if all parameters within bounds, -np.inf otherwise.
     """
-    for (key, value), bounds in zip(theta_dic.items(), _LIKELIHOOD_PARAMETERS["par_bounds"]):
-        if not (bounds[0] < value < bounds[1]):
-            logger.debug(f"Prior on {key} is not in [{bounds[0]}, {bounds[1]}]")
+    for p, val in theta_dic.items():
+        bounds = _LIKELIHOOD_PARAMETERS["par_bounds"][p]
+        if not (bounds[0] < val < bounds[1]):
+            logger.debug(f"Prior on {[p]} is not in [{bounds[0]}, {bounds[1]}]")
             return -np.inf
     return 0.0
 
 
-def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float:
+def log_probability(theta_dic: dict[str, np.float64] | list[float], **kwargs) -> float:
     """
     Calculate log-probability (posterior) for MCMC sampling.
 
@@ -522,14 +478,13 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
     logger.debug(
         f"\n\n#### COMPUTING LOGPROB ON ITERATION {_WORKER_SALT2MU_CONNECTION.iter} ####\n"
     )
-    logger.debug(f"   theta: {theta}")
-
     # De-log
-    theta[_LIKELIHOOD_PARAMETERS["log_sampling"]] = np.exp(
-        theta[_LIKELIHOOD_PARAMETERS["log_sampling"]]
-    )
+    theta_dic = {
+        k: np.exp(v) if _LIKELIHOOD_PARAMETERS["log_sampling"][k] else v
+        for k, v in theta_dic.items()
+    }
 
-    theta_dic = dict(zip(_LIKELIHOOD_PARAMETERS["par_names"], theta))
+    logger.debug("   THETA: \n" + "\n".join([f"    -- {k} = {v}" for k, v in theta_dic.items()]))
 
     # Prior
     lp = log_prior(theta_dic)
@@ -557,7 +512,7 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
 def _init_worker(
     config: Config,
     realdata_salt2mu_results: dict[str, Any],
-    likelihood_parameters: dict,
+    likelihood_parameters: dict[str, Any],
     debug: bool = False,
 ) -> None:
     """
@@ -601,10 +556,11 @@ def _init_worker(
     log_path = str(Path(config.OUTPUT_DIR) / "logs" / f"worker_{_WORKER_INDEX:02d}.log")
     add_file_handler(log_path)
 
-    _WORKER_SALT2MU_CONNECTION = init_salt2mu_worker_connection()
+    _WORKER_SALT2MU_CONNECTION = _init_salt2mu_worker_connection()
     _WORKER_REALDATA_SALT2MU_RESULTS = realdata_salt2mu_results
 
     logger.info(f"==== Worker {_WORKER_INDEX} INITIALIZED ====")
+    logger.info(f"LIKELIHOOD PARAMETERS: {_LIKELIHOOD_PARAMETERS}")
     logger.info(f"DEBUG MODE: {_WORKER_DEBUGFLAG}")
     logger.info(f"Logger set to {log_path}")
     logger.info("============================================")
