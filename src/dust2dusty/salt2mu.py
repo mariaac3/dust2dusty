@@ -42,8 +42,8 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from dust2dusty.cli import Config
 from dust2dusty.log import get_logger, setup_salt2mu_logger
+from dust2dusty.utils import binned_dist
 
 # Module-level logger
 logger: logging.Logger = get_logger()
@@ -69,7 +69,7 @@ class SALT2mu:
     """
 
     # Default value ranges for parameter arrays
-    DEFAULT_PARAMETER_GRID: ClassVar[dict[str, NDArray[np.float64]]] = {
+    _DEFAULT_PARAMETER_GRID: ClassVar[dict[str, NDArray[np.float64]]] = {
         "c": np.arange(-0.5, 0.5, 0.001),
         "x1": np.arange(-5, 5, 0.01),
         "RV": np.arange(0, 8, 0.1),
@@ -80,7 +80,7 @@ class SALT2mu:
     _OPERATOR_MAP = {"low": operator.lt, "high": operator.gt}
 
     # Parameter name mappings for SALT2mu format
-    PARAM_TO_SALT2MU: ClassVar[dict[str, str]] = {
+    _PARAM_TO_SALT2MU: ClassVar[dict[str, str]] = {
         "c": "SIM_c",
         "x1": "SIM_x1",
         "HOST_LOGMASS": "HOST_LOGMASS",
@@ -95,8 +95,6 @@ class SALT2mu:
         "HOST_COLOR": "HOST_COLOR",
     }
 
-    DISTRIBUTION_PARAMETERS = Config.DISTRIBUTION_PARAMETERS
-
     def __init__(
         self,
         command: str,
@@ -108,6 +106,7 @@ class SALT2mu:
         timeout=600,
         log_dir: Path | None = None,
         salt2mu_genpdf_grid: dict = {},
+        split_dist_par: str | list = "HOST_LOGMASS",
     ) -> None:
         """
         Initialize SALT2mu connection.
@@ -145,12 +144,12 @@ class SALT2mu:
         # Init genpdf grid
         self.genpdf_grid_param_range = {
             **salt2mu_genpdf_grid,
-            **self.DEFAULT_PARAMETER_GRID,
+            **self._DEFAULT_PARAMETER_GRID,
         }
         for key, val in self.genpdf_grid_param_range.items():
             if isinstance(val, dict):
                 self.genpdf_grid_param_range[key] = getattr(np, val["method"])(*val["args"])
-
+        self.split_split_par = split_dist_par
         self.genpdf_crosstalk_file = open(genpdf_crosstalk_file, "w")
         self.SALT2muoutputs = open(salt2mu_out)
 
@@ -347,11 +346,14 @@ class SALT2mu:
             else:
                 pass
 
-        self.salt2mu_results["bindf"] = pd.read_csv(
-            StringIO("\n".join(data_lines)),
-            names=names,
-            sep=r"\s+",
-            header=None,
+        self.salt2mu_results["binned_dists"] = binned_dist(
+            pd.read_csv(
+                StringIO("\n".join(data_lines)),
+                names=names,
+                sep=r"\s+",
+                header=None,
+            ),
+            split_dist_par=self.split_split_par,
         )
         self.salt2mu_results["siginterr"] = 0.0036  # DEFAULT VALUE
         return True
@@ -520,8 +522,7 @@ class SALT2mu:
             Writes SNANA-format parameter specification to crosstalk file.
             GENRANGE is .1-.2 for alpha, .4-3 for beta.
         """
-        for _ in range(3):
-            self.genpdf_crosstalk_file.write("\n")
+        self.genpdf_crosstalk_file.write("\n" * 3)
         mean = param_dist_vals_dic[name + "_mu"]
         std = param_dist_vals_dic[name + "_std"]
         self.genpdf_crosstalk_file.write(f"GENPEAK_SIM_{name}: {mean} \n")
@@ -530,8 +531,7 @@ class SALT2mu:
             self.genpdf_crosstalk_file.write(f"GENRANGE_SIM_{name}: .1 .2 \n")
         else:
             self.genpdf_crosstalk_file.write(f"GENRANGE_SIM_{name}: .4 3 \n")
-        for _ in range(3):
-            self.genpdf_crosstalk_file.write("\n")
+        self.genpdf_crosstalk_file.write("\n" * 3)
 
     def write_generic_PDF(
         self,
@@ -568,13 +568,13 @@ class SALT2mu:
             self.write_SALT2(param_name, param_dist_vals_dic)
             return
 
-        par_name_SALT2MU = self.PARAM_TO_SALT2MU[param_name]
+        par_name_SALT2MU = self._PARAM_TO_SALT2MU[param_name]
 
         # Handle splits
         split_pars = []
         if "splits" in param_dic:
             split_pars = list(param_dic["splits"].keys())
-        split_par_SALT2MU = [self.PARAM_TO_SALT2MU[split_p] for split_p in split_pars]
+        split_par_SALT2MU = [self._PARAM_TO_SALT2MU[split_p] for split_p in split_pars]
 
         # Write header
         self.write_generic_header(par_name_SALT2MU, split_par_SALT2MU)
@@ -618,9 +618,14 @@ class SALT2mu:
                     )
                 else:
                     raise ValueError(f"{split_p} key not found")
-                genpdf_probs_grid[mask] = self.shape_assigner(
-                    param_name, param_dic["dist"], param_dist_vals_subdic, genpdf_par_grid[mask]
-                )
+
+            genpdf_probs_grid[mask] = self.shape_assigner(
+                param_name, param_dic["dist"], param_dist_vals_subdic, genpdf_par_grid[mask]
+            )
+
+        if "RV" in param_name:
+            genpdf_probs_grid[genpdf_par_grid < 0.4] = 0
+
         self.write_GENPDF(genpdf_par_grid, genpdf_split_grid, genpdf_probs_grid)
         self.genpdf_crosstalk_file.write("\n")
         return None

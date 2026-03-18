@@ -73,35 +73,23 @@ class Config:
         DISTRIBUTION_PARAMETERS: Parameter names for each distribution type.
     """
 
-    # SNANA output format mappings
-    SUBPROCESS_TO_SNANA: ClassVar[dict[str, str]] = {
-        "SIM_c": "SALT2c",
-        "SIM_RV": "RV",
-        "HOST_LOGMASS": "LOGMASS",
-        "SIM_EBV": "EBV",
-        "SIM_ZCMB": "ZTRUE",
-        "SIM_beta": "SALT2BETA",
-        "HOST_COLOR": "COLOR",
-    }
-
-    # Split parameter format specifications
-    SPLIT_PARAMETER_FORMATS: ClassVar[dict[str, str]] = {
-        "HOST_LOGMASS": "HOST_LOGMASS(2,0:20)",
-        "HOST_COLOR": "HOST_COLOR(2,-.5:2.5)",
-        "zHD": "zHD(2,0:1)",
-    }
-
-    # Parameter override dictionary (for fixing parameters)
-    PARAMETER_OVERRIDES: ClassVar[dict[str, float]] = {}
+    # # Split parameter format specifications
+    # _SPLIT_PARAMETER_FORMATS: ClassVar[dict[str, str]] = {
+    #     "HOST_LOGMASS": "HOST_LOGMASS(2,0:20)",
+    #     "HOST_COLOR": "HOST_COLOR(2,-.5:2.5)",
+    #     "zHD": "zHD(2,0:1)",
+    # }
 
     # Distribution parameter specifications
-    DISTRIBUTION_PARAMETERS: ClassVar[dict[str, list[str]]] = {
+    _DISTRIBUTION_PARAMETERS: ClassVar[dict[str, list[str]]] = {
         "Gaussian": ["mu", "std"],
         "Skewed Gaussian": ["mu", "std_low", "std_high"],
         "Exponential": ["tau"],
         "LogNormal": ["ln_mu", "ln_std"],
         "Double Gaussian": ["a_1", "mu_1", "std_1", "mu_2", "std_2"],
     }
+
+    _SALT2MU_EXE = "SALT2mu.exe"  # Default SALT2mu executable name (assumed to be in PATH)
 
     # File paths (required)
     OUTPUT_DIR: str | Path
@@ -115,7 +103,6 @@ class Config:
     # Parameter configuration
     salt2mu_genpdf_grid: dict[str, Any] = field(default_factory=dict)
     fitted_params: dict[str, Any] = field(default_factory=dict)
-    splitparam: str = "HOST_LOGMASS"
     parameter_inits: dict[str, dict[str, Any]] = field(default_factory=dict)
     splitarr: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -132,7 +119,9 @@ class Config:
     NWALKERS: int | None = None
 
     @classmethod
-    def from_dict(cls, config_dict: dict[str, Any], args: argparse.Namespace) -> Config:
+    def from_dict(
+        cls, config_dict: dict[str, Any], args: argparse.Namespace, USE_MPI=False
+    ) -> Config:
         """
         Create Config object from YAML dictionary and command-line arguments.
 
@@ -151,7 +140,6 @@ class Config:
             # Parameter configuration
             fitted_params=config_dict["FITTED_PARAMS"],
             parameter_inits=config_dict["PARAMETER_INITS"],
-            splitparam=config_dict.get("SPLITPARAM", "HOST_LOGMASS"),
             salt2mu_genpdf_grid=config_dict.get("SALT2MU_GENPDF_GRID", {}),
             # Command-line arguments
             OUTPUT_DIR=Path(args.OUTPUT_DIR),
@@ -161,7 +149,8 @@ class Config:
             NOWEIGHT=args.NOWEIGHT,
             VERBOSE=args.VERBOSE,
             SAMPLER=args.SAMPLER,
-            USE_MPI=args.USE_MPI,  # MPI is auto-detected
+            # Add MPI flag
+            USE_MPI=USE_MPI,  # MPI is auto-detected
         )
 
     def __post_init__(self):
@@ -170,6 +159,24 @@ class Config:
             # If there is a default and the value of the field is none we can assign a value
             if not isinstance(f.default, _MISSING_TYPE) and getattr(self, f.name) is None:
                 setattr(self, f.name, f.default)
+
+    @property
+    def split_pars(self):
+        return np.unique(
+            sum(
+                [list(v["splits"].keys()) for _, v in self.fitted_params.items() if "splits" in v],
+                [],
+            )
+        )
+
+    @property
+    def split_dist_par(self):
+        split_pars_list = [k for k in self.split_pars if k != "SIM_ZCMB"]
+        if len(split_pars_list) > 1:
+            raise NotImplementedError(
+                "Multiple distribution split parameters not currently supported."
+            )
+        return split_pars_list[0]
 
 
 def _create_output_directories(
@@ -278,16 +285,15 @@ def _load_config(args: argparse.Namespace, logger: logging.Logger, USE_MPI=False
         logger.error(f"Missing required configuration keys: {missing_keys}")
         sys.exit(1)
 
-    # Add mpi use boolean
-    args.USE_MPI = USE_MPI
-
     # Create Config object from dictionary and args
     config = Config.from_dict(config_dict, args)
 
     logger.info(f"Loaded configuration from: {config_file}")
 
     # Set up output directory structure
-    _create_output_directories(config.OUTPUT_DIR, config_file, logger, force=args.FORCE_OVERRIDE)
+    _create_output_directories(
+        config.OUTPUT_DIR, config_file, logger, force=args.FORCE_OVERRIDE, USE_MPI=USE_MPI
+    )
 
     # Log configuration summary
     logger.info("Configuration finalized successfully:")

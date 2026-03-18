@@ -8,7 +8,7 @@ making them easily testable and reusable.
 from __future__ import annotations
 
 import logging
-import os
+from collections import defaultdict
 from itertools import combinations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -19,28 +19,18 @@ from numpy.typing import NDArray
 if TYPE_CHECKING:
     from dust2dusty.cli import Config
 
-# Constants
-JOBNAME_SALT2MU: str = "SALT2mu.exe"
 
 _ARRAY_GENERATORS = {
     "arange": np.arange,
     "linspace": np.linspace,
 }
 
-
-def generate_split_array(spec: dict[str, Any]) -> NDArray[np.float64]:
-    """Generate a numpy array from a splitarr config entry.
-
-    Args:
-        spec: Dict with keys 'method' (arange or linspace) and 'args' (list of numbers).
-
-    Returns:
-        The generated numpy array.
-    """
-    return _ARRAY_GENERATORS[spec["method"]](*spec["args"])
+# =============================================================================
+# INIT TOOLS
+# =============================================================================
 
 
-def cmd_exe(executable: str, input_file: str) -> str:
+def cmd_salt2mu_exe(config, data=False) -> str:
     """
     Build command string for SALT2mu.exe with subprocess file placeholders.
 
@@ -52,7 +42,8 @@ def cmd_exe(executable: str, input_file: str) -> str:
         Command string with %s placeholders for subprocess files
         (mapsout, SALT2muout, log).
     """
-    return f"{executable} {input_file} SUBPROCESS_FILES=%s,%s,%s "
+    input_file = config.data_input if data else config.sim_input
+    return f"{config._SALT2MU_EXE} {config.data_input} SUBPROCESS_FILES=%s,%s,%s "
 
 
 def _init_salt2mu_realdata(
@@ -99,11 +90,9 @@ def _init_salt2mu_realdata(
     realdata_salt2mu_res.touch()
 
     # Generate output table specification (color bins x split parameter bins)
-    arg_outtable = f"'c(6,-0.2:0.25)*{config.SPLIT_PARAMETER_FORMATS[config.splitparam]}'"
+    arg_outtable = f"'c(6,-0.2:0.25)*HOST_LOGMASS(2,0:20)'"
 
-    cmd = cmd_exe(JOBNAME_SALT2MU, config.data_input) + (
-        f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} debug_flag=930"
-    )
+    cmd = cmd_salt2mu_exe(config) + (f"SUBPROCESS_OUTPUT_TABLE={arg_outtable}")
 
     from dust2dusty.salt2mu import SALT2mu
 
@@ -114,6 +103,7 @@ def _init_salt2mu_realdata(
         subprocess_log_data,
         is_realdata=True,
         debug=debug,
+        split_dist_par=config.split_dist_par,
     )
 
     return real_data.salt2mu_results
@@ -124,7 +114,7 @@ def get_sampled_par_names_and_init(config) -> tuple[list[str], NDArray, NDArray,
     for p, pdic in config.fitted_params.items():
         if "splits" not in pdic:
             sampled_par_names.extend(
-                [f"{p}_{dist_p}" for dist_p in config.DISTRIBUTION_PARAMETERS[pdic["dist"]]]
+                [f"{p}_{dist_p}" for dist_p in config._DISTRIBUTION_PARAMETERS[pdic["dist"]]]
             )
         else:
             splits = pdic["splits"].keys()
@@ -138,7 +128,7 @@ def get_sampled_par_names_and_init(config) -> tuple[list[str], NDArray, NDArray,
                 [
                     split_string.format(dist_p, *split_st)
                     for split_st in split_states
-                    for dist_p in config.DISTRIBUTION_PARAMETERS[pdic["dist"]]
+                    for dist_p in config._DISTRIBUTION_PARAMETERS[pdic["dist"]]
                 ]
             )
     p0_mu = np.array([config.parameter_inits[p]["p0"] for p in sampled_par_names])
@@ -163,45 +153,59 @@ def get_sampled_par_names_and_init(config) -> tuple[list[str], NDArray, NDArray,
     return sampled_par_names, p0_mu, p0_std, par_bounds, log_sampling
 
 
-def subprocess_to_snana(outdir: str, snana_mapping: dict[str, str]) -> str:
-    """
-    Convert GENPDF file from SUBPROCESS format to SNANA-compatible format.
+# =============================================================================
+# DATA PROCESSING
+# =============================================================================
 
-    Reads GENPDF.DAT file, removes the first line (header), and replaces
-    variable names from subprocess format (e.g., 'SIM_c', 'SIM_RV') to SNANA
-    format (e.g., 'SALT2c', 'RV') so the file can be used directly in SNANA
-    simulations.
+
+def binned_dist(
+    salt2mu_res: pd.DataFrame, split_dist_par="HOST_LOGMASS"
+) -> tuple[NDArray, NDArray] | dict[str, NDArray] | str:
+    """
+    Extract binned statistics from SALT2mu output dataframe.
+
+    Parses the pandas dataframe returned by SALT2mu to extract color and
+    x1 histograms, Hubble residuals, and scatter statistics split by the
+    splitparam variable (typically HOST_LOGMASS).
 
     Args:
-        outdir: Output directory containing GENPDF.DAT (should end with '/').
-        snana_mapping: Dictionary mapping subprocess names to SNANA names.
-            Example: {'SIM_c': 'SALT2c', 'SIM_RV': 'RV', 'HOST_LOGMASS': 'LOGMASS'}.
+        df: pandas DataFrame from SALT2mu output containing binned statistics.
+            Expected columns: ibin_c, ibin_x1, ibin_{splitparam}, NEVT,
+            MURES_SUM, STD_ROBUST.
 
     Returns:
-        'Done' upon successful completion.
-
-    Side Effects:
-        Modifies GENPDF.DAT file in place:
-        - Removes first line
-        - Converts all variable names to SNANA format
+        Dictionary with keys: 'mures_high', 'mures_low', 'rms_high', 'rms_low',
+        'nevt_high', 'nevt_low', and optionally 'c_hist' and 'x1_hist' if those
+        columns are present in the dataframe.
     """
-    filein = outdir + "GENPDF.DAT"
-    with open(filein) as f:
-        lines = f.readlines()
-    del lines[0]
-    os.remove(filein)
-    with open(filein, "w+") as f:
-        for line in lines:
-            f.write(line)
-    with open(filein) as f:
-        filedata = f.read()
-    for key in snana_mapping.keys():
-        if key in filedata:
-            filedata = filedata.replace(key, snana_mapping[key])
-    os.remove(filein)
-    with open(filein, "w") as f:
-        f.write(filedata)
-    return "Done"
+    low_mask = salt2mu_res[f"ibin_{split_dist_par}"] == 0
+
+    salt2mu_res_low = salt2mu_res[low_mask]
+    salt2mu_res_high = salt2mu_res[~low_mask]
+
+    low_NEVT = salt2mu_res_low["NEVT"].values
+    high_NEVT = salt2mu_res_high["NEVT"].values
+
+    mures_low = salt2mu_res_low["MURES_SUM"].values / low_NEVT
+    mures_high = salt2mu_res_high["MURES_SUM"].values / high_NEVT
+
+    rms_low = salt2mu_res_low.STD_ROBUST.values
+    rms_high = salt2mu_res_high.STD_ROBUST.values
+
+    par_pops = defaultdict(np.ndarray)
+    for k in ["c", "x1"]:
+        if f"ibin_{k}" in salt2mu_res.columns:
+            par_pops[k + "_hist"] = salt2mu_res.groupby(f"ibin_{k}")["NEVT"].sum().values
+
+    return {
+        "mures_low": mures_low,
+        "mures_high": mures_high,
+        "rms_low": rms_low,
+        "rms_high": rms_high,
+        "nevt_low": low_NEVT,
+        "nevt_high": high_NEVT,
+        **par_pops,
+    }
 
 
 def norm_hist_to_data(
