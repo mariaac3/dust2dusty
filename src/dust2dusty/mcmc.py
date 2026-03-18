@@ -121,7 +121,7 @@ def MCMC(
     par_names, p0_mu, p0_std, par_bounds, log_sampling = get_sampled_par_names_and_init(config)
     ndim = len(par_names)
 
-    likelihood_parameter = {
+    likelihood_parameters = {
         "par_names": par_names,
         "par_bounds": par_bounds,
         "log_sampling": log_sampling,
@@ -146,12 +146,12 @@ def MCMC(
     if config.USE_MPI:
         n_proc = comm.Get_size()
         # Broadcast initialization data to all workers BEFORE creating pool
-        comm.bcast((config, realdata_salt2mu_results, likelihood_parameter, debug), root=0)
+        comm.bcast((config, realdata_salt2mu_results, likelihood_parameters, debug), root=0)
         pool = schwimmbad.MPIPool()
     # Not using MPI
     else:
         pool = schwimmbad.SerialPool()
-        _init_worker(config, realdata_salt2mu_results, likelihood_parameter, debug)
+        _init_worker(config, realdata_salt2mu_results, likelihood_parameters, debug)
         n_proc = 1
 
     emcee_nwalkers = int(2 * (n_proc - 1)) if n_proc > 1 else max(2 * ndim, 8)

@@ -57,10 +57,6 @@ if TYPE_CHECKING:
 # GLOBAL VARIABLES & CONSTANTS
 # =============================================================================
 
-# Constants
-JOBNAME_SALT2MU: str = "SALT2mu.exe"
-NCBINS: int = 6  # Number of color bins
-
 # Module-level logger
 logger: logging.Logger = get_logger()
 
@@ -71,6 +67,7 @@ _WORKER_SALT2MU_CONNECTION: SALT2mu | None = None
 _WORKER_DEBUGFLAG: bool = False
 _WORKER_INDEX: int | None = None
 _CONFIG: Config | None = None
+_LIKELIHOOD_PARAMETERS: dict[str, Any] | None = None
 
 # =============================================================================
 # SALT2MU CONNECTION MANAGEMENT
@@ -136,7 +133,7 @@ def get_worker_index() -> int:
         return 0
 
 
-def init_salt2mu_worker_connection() -> SALT2mu:
+def _init_salt2mu_worker_connection() -> SALT2mu:
     """
     Initialize connection to SALT2mu.exe subprocess for this worker.
 
@@ -160,7 +157,6 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         - 2: Creates M0DIF file
         - 4: Implements randomseed option (default for production)
     """
-    optmask = 4
     outdir = _CONFIG.OUTPUT_DIR / "worker_salt2mu_files"
 
     subprocess_salt2mu_res = outdir / f"{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_RES.DAT"
@@ -176,17 +172,16 @@ def init_salt2mu_worker_connection() -> SALT2mu:
     subprocess_salt2mu_log.touch()
 
     # Generate output table specification (color bins x split parameter bins)
-    arg_outtable = f"'c(6,-0.2:0.25)*HOST_LOGMASS(2,0:20)'"
+    arg_outtable = "'c(6,-0.2:0.25)*HOST_LOGMASS(2,0:20)'"
     # Generate GENPDF variable names from input parameters
     genpdf_names = _generate_genpdf_varnames(list(_CONFIG.fitted_params.keys()), _CONFIG.split_pars)
 
     cmd = cmd_salt2mu_exe(_CONFIG) + (
         f"SUBPROCESS_VARNAMES_GENPDF={genpdf_names} "
         f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} "
-        f"SUBPROCESS_OPTMASK={optmask} "
+        f"SUBPROCESS_OPTMASK=4 "
         f"SUBPROCESS_SIMREF_FILE={_CONFIG.simref_file} "
     )
-
     connection = SALT2mu(
         cmd,
         genpdf_crosstalk_file,
@@ -195,7 +190,7 @@ def init_salt2mu_worker_connection() -> SALT2mu:
         salt2mu_genpdf_grid=_CONFIG.salt2mu_genpdf_grid,
         debug=_WORKER_DEBUGFLAG,
         log_dir=log_dir,
-        split_pars=_CONFIG.split_pars,
+        split_dist_par=_CONFIG.split_dist_par,
     )
 
     return connection
@@ -287,22 +282,32 @@ def compute_and_sum_loglikelihoods(
 
     # Salt parameters
     for k in ["c", "x1"]:
-        if k + "_hist" in binned_dists:
-            datacount, simcount, poisson_err, _ = norm_hist_to_data(*binned_dists[k + "_hist"])
-            ll_dict[k + "_hist"] = -0.5 * np.sum((datacount - simcount) ** 2 / poisson_err**2)
-            datacount_dict[k + "_hist"] = datacount
-            simcount_dict[k + "_hist"] = simcount
-            poisson_dict[k + "_hist"] = poisson_err
+        res_key = f"{k}_hist"
+        if res_key in binned_dists:
+            datacount, simcount, poisson_err = norm_hist_to_data(*binned_dists[res_key])
+            ll_dict[res_key] = -0.5 * np.sum((datacount - simcount) ** 2 / poisson_err**2)
+
+            # DEBUG PURPOSE
+            datacount_dict[res_key] = datacount
+            simcount_dict[res_key] = simcount
+            poisson_dict[res_key] = poisson_err
             logger.debug(
                 f"   - {k}: ({datacount} (data) -  {simcount} (sim))**2 / {poisson_err}**2 = {ll_dict[k + '_hist']}"
             )
 
     for k in ["low", "high"]:
-        mask = binned_dists["nevt_" + k][0] > 0
+        mask = (binned_dists["nevt_" + k][0] > 0) & (binned_dists["nevt_" + k][1] > 0)
 
-        # MURES
+        # MURES #
         data_mures, sim_mures = binned_dists["mures_" + k]
-        poisson_err_mures = binned_dists["rms_" + k][0] / np.sqrt(binned_dists["nevt_" + k][0])
+        poisson_err_mures = np.sqrt(
+            sum(
+                (
+                    rms**2 / nevt
+                    for rms, nevt in zip(binned_dists["rms_" + k], binned_dists["nevt_" + k])
+                )
+            )
+        )
 
         data_mures, sim_mures, poisson_err_mures = (
             data_mures[mask],
@@ -311,14 +316,22 @@ def compute_and_sum_loglikelihoods(
         )
 
         ll_dict["mures_" + k] = -0.5 * np.sum((data_mures - sim_mures) ** 2 / poisson_err_mures**2)
+
+        # DEBUG PURPOSE
         datacount_dict["mures_" + k] = data_mures
         simcount_dict["mures_" + k] = sim_mures
         poisson_dict["mures_" + k] = poisson_err_mures
 
-        # RMS
+        # RMS #
         data_rms, sim_rms = binned_dists["rms_" + k]
-        poisson_err_rms = data_rms / np.sqrt(2 * binned_dists["nevt_" + k][0])
-
+        poisson_err_rms = np.sqrt(
+            sum(
+                (
+                    rms**2 / (2 * nevt)
+                    for rms, nevt in zip(binned_dists["rms_" + k], binned_dists["nevt_" + k])
+                )
+            )
+        )
         data_rms, sim_rms, poisson_err_rms = (
             data_rms[mask],
             sim_rms[mask],
@@ -328,6 +341,8 @@ def compute_and_sum_loglikelihoods(
         ll_dict["rms_" + k] = (
             -0.5 * np.sum((data_rms - sim_rms) ** 2 / poisson_err_rms**2) * rms_weight
         )
+
+        # DEBUG PURPOSE
         datacount_dict["rms_" + k] = data_rms
         simcount_dict["rms_" + k] = sim_rms
         poisson_dict["rms_" + k] = poisson_err_rms
@@ -462,14 +477,14 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
     logger.debug(
         f"\n\n#### COMPUTING LOGPROB ON ITERATION {_WORKER_SALT2MU_CONNECTION.iter} ####\n"
     )
-    logger.debug(f"   theta: {theta}")
 
     # De-log
     theta[_LIKELIHOOD_PARAMETERS["log_sampling"]] = np.exp(
         theta[_LIKELIHOOD_PARAMETERS["log_sampling"]]
     )
-
     theta_dic = dict(zip(_LIKELIHOOD_PARAMETERS["par_names"], theta))
+
+    logger.debug("   THETA: \n" + "\n".join([f"    -- {k} = {v}" for k, v in theta_dic.items()]))
 
     # Prior
     lp = log_prior(theta_dic)
@@ -497,7 +512,7 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
 def _init_worker(
     config: Config,
     realdata_salt2mu_results: dict[str, Any],
-    likelihood_parameters: dict,
+    likelihood_parameters: dict[str, Any],
     debug: bool = False,
 ) -> None:
     """
@@ -541,7 +556,7 @@ def _init_worker(
     log_path = str(Path(config.OUTPUT_DIR) / "logs" / f"worker_{_WORKER_INDEX:02d}.log")
     add_file_handler(log_path)
 
-    _WORKER_SALT2MU_CONNECTION = init_salt2mu_worker_connection()
+    _WORKER_SALT2MU_CONNECTION = _init_salt2mu_worker_connection()
     _WORKER_REALDATA_SALT2MU_RESULTS = realdata_salt2mu_results
 
     logger.info(f"==== Worker {_WORKER_INDEX} INITIALIZED ====")

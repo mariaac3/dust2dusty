@@ -286,14 +286,12 @@ def _load_config(args: argparse.Namespace, logger: logging.Logger, USE_MPI=False
         sys.exit(1)
 
     # Create Config object from dictionary and args
-    config = Config.from_dict(config_dict, args)
+    config = Config.from_dict(config_dict, args, USE_MPI=USE_MPI)
 
     logger.info(f"Loaded configuration from: {config_file}")
 
     # Set up output directory structure
-    _create_output_directories(
-        config.OUTPUT_DIR, config_file, logger, force=args.FORCE_OVERRIDE, USE_MPI=USE_MPI
-    )
+    _create_output_directories(config.OUTPUT_DIR, config_file, logger, force=args.FORCE_OVERRIDE)
 
     # Log configuration summary
     logger.info("Configuration finalized successfully:")
@@ -441,7 +439,6 @@ def main() -> int:
         log_probability,
     )
     from dust2dusty.mcmc import MCMC
-    from dust2dusty.utils import input_cleaner
 
     # Check MPI status early - workers should not do heavy setup
     USE_MPI = False
@@ -471,10 +468,19 @@ def main() -> int:
 
         # Test run mode - single likelihood evaluation (no MPI needed)
         if config.TEST_RUN:
-            _init_worker(config, realdata_salt2mu_results, debug=debug)
-            _, p0_init, _, _, _ = get_sampled_par_names_and_init(config)
+            par_names, p0_mu, p0_std, par_bounds, log_sampling = get_sampled_par_names_and_init(
+                config
+            )
 
-            logger.info(f"Test run result: {log_probability(p0_init, last=True)}")
+            likelihood_parameters = {
+                "par_names": par_names,
+                "par_bounds": par_bounds,
+                "log_sampling": log_sampling,
+            }
+
+            _init_worker(config, realdata_salt2mu_results, likelihood_parameters, debug=True)
+
+            logger.info(f"Test run result: {log_probability(p0_mu, last=True)}")
             sys.exit(0)
 
         # Full MCMC run

@@ -43,14 +43,14 @@ def cmd_salt2mu_exe(config, data=False) -> str:
         (mapsout, SALT2muout, log).
     """
     input_file = config.data_input if data else config.sim_input
-    return f"{config._SALT2MU_EXE} {config.data_input} SUBPROCESS_FILES=%s,%s,%s "
+    return f"{config._SALT2MU_EXE} {input_file} SUBPROCESS_FILES=%s,%s,%s "
 
 
 def _init_salt2mu_realdata(
     config: Config,
     logger: logging.Logger,
     debug: bool = False,
-    directory: str = "realdata_files",
+    directory: str = "realdata_salt2mu_files",
 ) -> dict[str, Any]:
     """
     Initialize DUST2DUSTY by running SALT2mu on real data.
@@ -79,26 +79,27 @@ def _init_salt2mu_realdata(
 
     if debug:
         index = "DEBUG"
-    outdir = Path(config.OUTPUT_DIR)
 
-    subprocess_log_data = outdir / f"{directory}/{index}_SALT2MU_SUBPROCESS_REALDATA_LOG.STDOUT"
+    subprocess_log_data = (
+        config.OUTPUT_DIR / f"{directory}/{index}_SALT2MU_SUBPROCESS_REALDATA_LOG.STDOUT"
+    )
     logger.debug(f"Create file: {subprocess_log_data.absolute()}")
     subprocess_log_data.touch()
 
-    realdata_salt2mu_res = outdir / f"{directory}/REALDATA_SALT2MU_RES.DAT"
+    realdata_salt2mu_res = config.OUTPUT_DIR / f"{directory}/REALDATA_SALT2MU_RES.DAT"
     logger.debug(f"Create file: {realdata_salt2mu_res.absolute()}")
     realdata_salt2mu_res.touch()
 
     # Generate output table specification (color bins x split parameter bins)
     arg_outtable = f"'c(6,-0.2:0.25)*HOST_LOGMASS(2,0:20)'"
 
-    cmd = cmd_salt2mu_exe(config) + (f"SUBPROCESS_OUTPUT_TABLE={arg_outtable}")
+    cmd = cmd_salt2mu_exe(config, data=True) + (f"SUBPROCESS_OUTPUT_TABLE={arg_outtable}")
 
     from dust2dusty.salt2mu import SALT2mu
 
     real_data = SALT2mu(
         cmd,
-        outdir / f"{directory}/REALDATA_CROSSTALK_EMPTY.DAT",
+        config.OUTPUT_DIR / f"{directory}/REALDATA_CROSSTALK_EMPTY.DAT",
         realdata_salt2mu_res,
         subprocess_log_data,
         is_realdata=True,

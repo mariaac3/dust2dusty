@@ -26,13 +26,12 @@ Example Usage:
 
         from dust2dusty import Config, load_config, MCMC
         from dust2dusty.log import setup_logging, get_logger
-        from dust2dusty.utils import init_salt2mu_realdata, input_cleaner
+        from dust2dusty.utils import init_salt2mu_realdata
 
         setup_logging(debug=True)
         logger = get_logger()
         config = load_config("config.yml", args, logger)
         realdata = init_salt2mu_realdata(config, logger)
-        pos, nwalkers, ndim = input_cleaner(...)
         MCMC(config, pos, nwalkers, ndim, realdata)
 """
 
