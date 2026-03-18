@@ -35,12 +35,12 @@ def cmd_salt2mu_exe(config, data=False) -> str:
     Build command string for SALT2mu.exe with subprocess file placeholders.
 
     Args:
-        executable: Name of the executable (e.g., 'SALT2mu.exe').
-        input_file: Path to the input file for SALT2mu.
+        config: Config object (provides _SALT2MU_EXE, data_input, sim_input).
+        data: If True, use config.data_input; otherwise use config.sim_input.
 
     Returns:
-        Command string with %s placeholders for subprocess files
-        (mapsout, SALT2muout, log).
+        Command string with three %s placeholders for subprocess files
+        (genpdf_crosstalk_file, salt2mu_out, salt2mu_log_out).
     """
     input_file = config.data_input if data else config.sim_input
     return f"{config._SALT2MU_EXE} {input_file} SUBPROCESS_FILES=%s,%s,%s "
@@ -110,7 +110,30 @@ def _init_salt2mu_realdata(
     return real_data.salt2mu_results
 
 
-def get_sampled_par_names_and_init(config) -> tuple[list[str], NDArray, NDArray, NDArray, NDArray]:
+def get_sampled_par_names_and_init(config) -> tuple[list[str], NDArray, NDArray, dict, dict]:
+    """
+    Expand fitted parameter config into sampler-ready names and initialization arrays.
+
+    Iterates over config.fitted_params, expands each parameter according to its
+    distribution shape (from config._DISTRIBUTION_PARAMETERS) and any declared
+    splits, and collects initial values and bounds from config.parameter_inits.
+
+    Parameters that contain 'tau' or 'std' in their name are sampled in log-space
+    to enforce positivity; their p0 is log-transformed and their lower bound is
+    set to -inf.
+
+    Args:
+        config: Config object providing fitted_params, _DISTRIBUTION_PARAMETERS,
+            and parameter_inits.
+
+    Returns:
+        Tuple of (sampled_par_names, p0_mu, p0_std, par_bounds, log_sampling):
+            - sampled_par_names: Fully expanded parameter name list.
+            - p0_mu: Starting values (log-transformed where applicable).
+            - p0_std: Walker scatter widths for initialization.
+            - par_bounds: Dict mapping name → [lo, hi] (log-space for log-sampled).
+            - log_sampling: Dict mapping name → bool (True = sampled in log-space).
+    """
     sampled_par_names = []
     for p, pdic in config.fitted_params.items():
         if "splits" not in pdic:
@@ -174,9 +197,11 @@ def binned_dist(
     splitparam variable (typically HOST_LOGMASS).
 
     Args:
-        df: pandas DataFrame from SALT2mu output containing binned statistics.
-            Expected columns: ibin_c, ibin_x1, ibin_{splitparam}, NEVT,
-            MURES_SUM, STD_ROBUST.
+        salt2mu_res: pandas DataFrame from SALT2mu output containing binned
+            statistics. Expected columns: ibin_c, ibin_x1,
+            ibin_{split_dist_par}, NEVT, MURES_SUM, STD_ROBUST.
+        split_dist_par: Column name of the distribution split variable
+            (default: 'HOST_LOGMASS').
 
     Returns:
         Dictionary with keys: 'mures_high', 'mures_low', 'rms_high', 'rms_low',
