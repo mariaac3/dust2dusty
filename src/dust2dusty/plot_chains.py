@@ -35,6 +35,35 @@ def names_from_hdf5(backend_path: str) -> list[str] | None:
     return None
 
 
+def log_sampled_mask(param_names: list[str]) -> list[bool]:
+    """Return a bool list: True for parameters sampled in log-space (contain 'tau' or 'std')."""
+    return ["tau" in p or "std" in p for p in param_names]
+
+
+def apply_exp(chain, flat_chain, param_names):
+    """Return copies of chain and flat_chain with log-sampled parameters exponentiated."""
+    mask = log_sampled_mask(param_names)
+    if not any(mask):
+        return chain, flat_chain
+    chain = chain.copy()
+    flat_chain = flat_chain.copy()
+    for i, is_log in enumerate(mask):
+        if is_log:
+            chain[:, :, i] = np.exp(chain[:, :, i])
+            flat_chain[:, i] = np.exp(flat_chain[:, i])
+    return chain, flat_chain
+
+
+def names_from_hdf5(backend_path: str) -> list[str] | None:
+    """Read parameter names stored in the HDF5 chain file, or return None if absent."""
+    with h5py.File(backend_path, "r") as f:
+        for group_name in f:
+            grp = f[group_name]
+            if "parameter_names" in grp.attrs:
+                return list(grp.attrs["parameter_names"])
+    return None
+
+
 def fmt_val(v, eu, el):
     """Auto-format value and asymmetric errors to 2 significant figures."""
     scale = min(abs(eu), abs(el))
@@ -119,6 +148,8 @@ def plot_chains(backend_path, output=None, param_names=None, discard=0, thin=1, 
         param_names = [f"p{i}" for i in range(n_params)]
     elif len(param_names) != n_params:
         raise ValueError(f"Expected {n_params} param names, got {len(param_names)}")
+
+    chain, flat_chain = apply_exp(chain, flat_chain, param_names)
 
     alpha = max(0.04, min(0.45, 20 / n_walkers))
 
