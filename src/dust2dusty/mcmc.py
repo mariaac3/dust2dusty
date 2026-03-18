@@ -267,7 +267,7 @@ def _run_emcee(
         p0_start = p0
     else:
         backend = emcee.backends.HDFBackend(chain_file)
-        if config.resume:
+        if config.RESUME:
             # Continue from where the chain stopped — do NOT reset the backend
             p0_start = backend.get_last_sample()
             logger.info(
@@ -280,7 +280,7 @@ def _run_emcee(
             backend.reset(nwalkers, ndim)
             p0_start = p0
             logger.debug(f"Chain storage initialized: {chain_file}")
-        backend = emcee.backends.HDFBackend(chain_file, thin=5)
+        backend = emcee.backends.HDFBackend(chain_file)
         backend.reset(nwalkers, ndim)
 
         logger.debug(f"Chain storage initialized: {chain_file}")
@@ -304,7 +304,7 @@ def _run_emcee(
         ],
     )
 
-    if not config.resume and backend is not None:
+    if not config.RESUME and backend is not None:
         with h5py.File(backend.filename, "a") as f:
             f[backend.name].attrs["parameter_names"] = list(sampler_obj.parameter_names.keys())
 
@@ -451,7 +451,7 @@ def _run_nautilus(
     whose support is taken from ``config.parameter_initialization[name]["bounds"]``.
 
     Creates a ``nautilus.Sampler`` with ``log_likelihood``, ``pass_dict=False``,
-    and the provided ``pool``.  The HDF5 ``filepath`` and ``resume`` flags are
+    and the provided ``pool``.  The HDF5 ``filepath`` and ``RESUME`` flags are
     set from ``chain_file`` unless in debug mode.
 
     Running behaviour:
@@ -502,7 +502,7 @@ def _run_nautilus(
         resume=not debug,
     )
 
-    if config.resume and not debug:
+    if config.RESUME and not debug:
         logger.info(f"Resuming nautilus sampler from existing chain: {chain_file.name}")
     else:
         logger.info(
