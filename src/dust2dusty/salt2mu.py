@@ -377,7 +377,7 @@ class SALT2mu:
             arr: Array of x values to evaluate PDF at.
 
         Returns:
-            Tuple of (arr, probs) where probs are normalized to max=1.
+            Probability array normalized to max=1 (same shape as arr).
         """
         probs = np.exp(-0.5 * ((arr - mean) / lhs) ** 2)
         probs[arr > mean] = np.exp(-0.5 * ((arr[arr > mean] - mean) / rhs) ** 2)
@@ -396,7 +396,7 @@ class SALT2mu:
             arr: Array of x values to evaluate PDF at (should be >= 0).
 
         Returns:
-            Tuple of (arr, probs) where probs are normalized to max=1.
+            Probability array normalized to max=1 (same shape as arr).
         """
         probs = (tau**-1) * np.exp(-arr / tau)
         probs = probs / np.max(probs)
@@ -419,7 +419,7 @@ class SALT2mu:
             arr: Array of x values to evaluate PDF at.
 
         Returns:
-            Tuple of (arr, probs) where probs are normalized to max=1.
+            Probability array normalized to max=1 (same shape as arr).
         """
         probs = np.exp(mu + std * arr)
         probs = probs / np.max(probs)
@@ -429,7 +429,7 @@ class SALT2mu:
         """
         Write VARNAMES header line to pdf crosstalk file.
 
-        Deprecated: Use writegenericheader instead.
+        Deprecated: Use write_generic_header instead.
 
         Args:
             names: List of variable names.
@@ -465,12 +465,14 @@ class SALT2mu:
         Write ND probability distribution to crosstalk file.
 
         Args:
-            arr: Array of primary variable values.
-            mass: Mass value (scalar).
-            probs: Array of probability values (same length as arr).
+            genpdf_var_grid: Meshgrid array of primary variable values.
+            genpdf_split_grid: List of meshgrid arrays for split variables
+                (empty list for 1D PDFs).
+            genpdf_probs_grid: Meshgrid array of probability values
+                (same shape as genpdf_var_grid).
 
         Side Effects:
-            Writes "PDF: value mass prob" lines to crosstalk file.
+            Writes "PDF: var_val [split_val ...] prob" lines to crosstalk file.
         """
         format_sring = "PDF: {:.3f}" + "{:8.2f}" * len(genpdf_split_grid) + "  {:8.3f}\n"
         bigstr = ""
@@ -548,17 +550,15 @@ class SALT2mu:
         - 3D PDFs (two split variables, e.g., redshift and mass)
 
         Args:
-            inp: Parameter name (e.g., 'c', 'RV', 'EBV').
-            split: Dictionary defining splits for this parameter.
-                Format: {param: {split_var: split_value}}.
-            params: Array of distribution parameters from MCMC.
-            shape: Distribution shape name ('Gaussian', 'Exponential', etc.).
-            shapedict: Dictionary mapping shapes to parameter names.
-            simdict: Dictionary mapping parameter names to SALT2mu format.
-            arr: List of arrays [param_values, split1_values, split2_values, ...].
+            param_name: Internal parameter name (e.g., 'c', 'RV', 'EBV',
+                'alpha', 'beta').
+            param_dic: Per-parameter config dict from fitted_params (contains
+                'dist' shape name and optional 'splits' dict).
+            param_dist_vals_dic: Dict mapping expanded parameter names to
+                current MCMC values (e.g., {'RV_mu_HOST_LOGMASS_low': 2.3, ...}).
 
         Returns:
-            'Done' for alpha/beta early return, None otherwise.
+            None (alpha/beta return early after writing SNANA-format lines).
 
         Side Effects:
             - Writes header and PDF data to crosstalk file
@@ -644,17 +644,19 @@ class SALT2mu:
         based on shape specification.
 
         Args:
-            params: Distribution parameters (length depends on shape).
-                - Gaussian: [mu, std]
-                - Exponential: [tau]
-                - LogNormal: [ln_mu, ln_std]
-                - Skewed Gaussian: [mu, std_left, std_right]
-                - Double Gaussian: not supported (raises ValueError)
-            shape: Distribution shape name.
-            arr: Array of x values to evaluate PDF at.
+            param_name: Internal parameter name used to look up keys in
+                param_dist_vals_dic (e.g., 'RV', 'c').
+            dist_shape: Distribution shape name — one of 'Gaussian',
+                'Skewed Gaussian', 'Exponential', 'LogNormal'.
+            param_dist_vals_dic: Dict of MCMC parameter values for this
+                split/bin (e.g., {'RV_mu': 2.3, 'RV_std': 0.8}).
+            genpdf_grid: Array of x values to evaluate the PDF at.
 
         Returns:
-            Tuple of (arr, probs) from appropriate distribution function.
+            Probability array (same shape as genpdf_grid), normalized to max=1.
+
+        Raises:
+            ValueError: If dist_shape is not a recognised distribution name.
         """
         if dist_shape == "Gaussian":
             return self.get_1d_asym_gauss(

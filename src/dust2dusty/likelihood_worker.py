@@ -1,36 +1,21 @@
 """
-DUST2DUSTY: Supernova Cosmology Analysis with MCMC.
+Likelihood and worker initialization for DUST2DUSTY MCMC sampling.
 
-This module performs Markov Chain Monte Carlo (MCMC) fitting of supernova
-intrinsic scatter distributions while accounting for selection effects
-using reweighting.
+This module implements the core likelihood evaluation logic and per-process
+worker state management used by both emcee and nautilus samplers.
 
-The code fits distributions for supernova properties (color, stretch,
-extinction, etc.) by comparing real data to reweighted simulations via
-the SALT2mu.exe executable.
+Each MPI worker (or the single serial process) stores its own SALT2mu
+subprocess connection and the shared real-data results in module-level
+globals set by `_init_worker()`.  The MCMC sampler calls `log_probability()`
+which internally applies de-logging, evaluates the prior, runs one SALT2mu
+iteration, and returns log-posterior.
 
-Main Workflow:
-    1. Load configuration from YAML file specifying parameters to fit
-    2. Initialize connections to SALT2mu.exe subprocesses (one per MCMC walker)
-    3. Run MCMC using emcee or nautilus, where each likelihood evaluation:
-       - Writes PDF functions for proposed parameters
-       - Calls SALT2mu.exe to reweight simulation
-       - Compares data vs simulation distributions
-    4. Save chains and create diagnostic plots
-
-Key Components:
-    - Parameter configuration via YAML (distributions, splits, priors)
-    - SALT2mu.exe interface via salt2mu module
-    - Likelihood calculation comparing multiple observables
-    - Support for parameter splits by mass, redshift, etc.
-
-Usage:
-    python dust2dust.py --CONFIG IN_DUST2DUST.yml
-
-    Optional flags:
-        --TEST_RUN: Run single likelihood evaluation for testing
-        --DEBUG: Enable verbose output (3 iterations only)
-        --DEBUG_FULL: Full MCMC with DEBUG-level logging
+Key Functions:
+    _init_worker: Initialize per-worker global state (SALT2mu connection, config).
+    log_probability: Full log-posterior for MCMC (prior + likelihood).
+    log_likelihood: Run SALT2mu and compute chi-squared likelihood.
+    log_prior: Uniform prior — returns 0 within bounds, -inf outside.
+    cleanup_worker: Gracefully shut down this worker's SALT2mu subprocess.
 """
 
 from __future__ import annotations
@@ -84,7 +69,7 @@ def _generate_genpdf_varnames(fitted_params: list[str], split_par: str) -> str:
 
     Args:
         fitted_params: List of parameter names being fit (e.g., ['c', 'RV', 'x1']).
-        splitparam: Primary split parameter (e.g., 'HOST_LOGMASS').
+        split_par: List of split parameter names (e.g., ['HOST_LOGMASS']).
 
     Returns:
         Comma-separated SALT2mu variable names.
@@ -219,12 +204,12 @@ def compute_and_sum_loglikelihoods(
     - Intrinsic scatter (sigint)
 
     Args:
-        inparr: Dictionary with [data, sim] pairs for each observable.
-            Keys: 'color_hist', 'x1_hist', 'mures_high', 'mures_low',
+        binned_dists: Dictionary with (data, sim) tuples for each observable.
+            Keys: 'c_hist', 'x1_hist', 'mures_high', 'mures_low',
             'rms_high', 'rms_low', 'nevt_high', 'nevt_low'.
-            Each value is [real_data, sim_data].
-        returnall: If True, return detailed components.
-        rms_weight: Weight factor for RMS terms in likelihood.
+            Each value is a tuple (real_data_array, sim_array).
+        returnall: If True, return detailed components alongside the total.
+        rms_weight: Weight factor for RMS terms in the likelihood.
 
     Returns:
         If returnall is False:
@@ -405,14 +390,15 @@ def log_likelihood(
     4. Compares reweighted simulation to real data
 
     Args:
-        theta: Array of parameter values (length = ndim).
+        theta_dic: Dict mapping parameter names to their current values
+            (after de-logging has been applied by log_probability).
         returnall: If True, return detailed likelihood components.
         last: If True, close the SALT2mu connection after this evaluation.
 
     Returns:
         Log-likelihood value (float).
-        If returnall=True: tuple of (ll_dict, datacount_dict, simcount_dict, poisson_dict).
-        Returns -inf if MAXPROB > 1.001 (PDF hitting boundary).
+        If returnall=True: tuple of (total_ll, ll_dict, datacount_dict, simcount_dict, poisson_dict).
+        Returns -inf if MAXPROB > 1.001 (PDF probability hitting grid boundary).
     """
 
     # Run SALT2mu with these PDFs
@@ -470,7 +456,9 @@ def log_probability(theta_dic: dict[str, np.float64] | list[float], **kwargs) ->
     Must be called after _init_worker has set up the worker state.
 
     Args:
-        theta: Array of parameter values (length = ndim).
+        theta_dic: Dict (or list/array accepted by emcee) of parameter values.
+            Log-sampled parameters are exponentiated before prior/likelihood
+            evaluation.
 
     Returns:
         Log-posterior probability (log_prior + log_likelihood).

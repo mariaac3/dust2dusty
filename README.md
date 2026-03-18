@@ -1,6 +1,6 @@
 # dust2dusty
 
-Supernova Cosmology Analysis with MCMC - fitting intrinsic scatter distributions while accounting for selection effects using reweighting.
+Supernova Cosmology Analysis with MCMC — fits intrinsic scatter distributions of supernova properties (color, stretch, dust extinction, etc.) by comparing real data to simulations reweighted via the external `SALT2mu.exe` C executable.
 
 ## Installation
 
@@ -18,45 +18,41 @@ pip install -e ".[dev]"
 
 ```bash
 # Run MCMC fitting
-dust2dusty --CONFIG config/my_config.yml
+dust2dusty config/my_config.yml my_output_dir/
 
-# Quick debug run (3 iterations only, verbose output, then exit)
-dust2dusty --CONFIG config/my_config.yml --DEBUG
+# Quick debug run (3 iterations only, DEBUG-level logging, then exit)
+dust2dusty config/my_config.yml my_output_dir/ --DEBUG_RUN
 
-# Full MCMC with debug-level logging output
-dust2dusty --CONFIG config/my_config.yml --DEBUG_FULL
+# Full MCMC with DEBUG-level logging output
+dust2dusty config/my_config.yml my_output_dir/ --DEBUG_FULL
 
-# Run a single likelihood evaluation (test mode)
-dust2dusty --CONFIG config/my_config.yml --TEST_RUN
+# Run a single likelihood evaluation (test mode, no MCMC)
+dust2dusty config/my_config.yml my_output_dir/ --TEST_RUN
 
 # Use nautilus instead of emcee
-dust2dusty --CONFIG config/my_config.yml --SAMPLER nautilus
+dust2dusty config/my_config.yml my_output_dir/ --SAMPLER nautilus
 
-# Override number of walkers (emcee only)
-dust2dusty --CONFIG config/my_config.yml --NWALKERS 64
+# MPI run
+mpirun -n 8 dust2dusty config/my_config.yml my_output_dir/
 
-# MPI run (emcee)
-mpirun -n 8 dust2dusty --CONFIG config/my_config.yml --USE_MPI
+# Resume chains from a previous run
+dust2dusty config/my_config.yml my_output_dir/ --RESUME old_output_dir/
 
 # Force overwrite existing output directory
-dust2dusty --CONFIG config/my_config.yml --FORCE_OVERRIDE
+dust2dusty config/my_config.yml my_output_dir/ --FORCE_OVERRIDE
+
+# Show INFO-level messages on the console
+dust2dusty config/my_config.yml my_output_dir/ --VERBOSE
 ```
 
-### Python API
+### Plot chains after a run
 
-```python
-from dust2dusty import setup_logging, get_logger, Config, load_config, init_salt2mu_realdata, MCMC
+```bash
+# Auto-reads parameter names from the HDF5 file
+plot_chains my_output_dir/chains/data-chains.h5 -o chains.png
 
-# Set up logging
-setup_logging(debug=True)
-logger = get_logger()
-
-# Load configuration
-config = load_config("config/my_config.yml", args, logger)
-
-# Initialize and run
-realdata = init_salt2mu_realdata(config, logger, debug=True)
-MCMC(config, pos, nwalkers, ndim, realdata, debug=True, sampler="emcee")
+# Discard first 200 steps as burn-in, thin by 10
+plot_chains my_output_dir/chains/data-chains.h5 -o chains.png -d 200 -t 10
 ```
 
 ## Configuration
@@ -64,59 +60,65 @@ MCMC(config, pos, nwalkers, ndim, realdata, debug=True, sampler="emcee")
 A YAML configuration file is required. See `config/` directory for examples.
 
 Required configuration keys:
-- `DATA_INPUT`: Path to real data input file
-- `SIM_INPUT`: Path to simulation input file
+
+- `DATA_INPUT`: Path to real data input file for SALT2mu
+- `SIM_INPUT`: Path to simulation input file for SALT2mu
 - `SIMREF_FILE`: Path to simulation reference file
-- `FITTED_PARAMS`: List of parameters to fit (e.g., `['c', 'RV', 'EBV']`)
-- `PARAM_DISTS`: Distribution shapes for each parameter
-- `SPLITDICT`: Parameter splits (e.g., by host mass)
-- `PARAMETER_INITIALIZATION`: Prior bounds and initialization
-- `SPLITARR`: Split variable arrays
+- `FITTED_PARAMS`: Dict mapping parameter names to distribution/split config
+- `PARAMETER_INITS`: Per-parameter initialization (p0, p0_std, bounds)
+
+Optional keys:
+
+- `SALT2MU_GENPDF_GRID`: Overrides for the default parameter grid ranges used
+  when writing PDFs (merged with the built-in `_DEFAULT_PARAMETER_GRID`)
 
 ## Package Structure
 
 ```
 dust2dusty/
 ├── src/dust2dusty/
-│   ├── __init__.py      # Package initialization
-│   ├── cli.py           # Command-line interface and Config dataclass
-│   ├── mcmc.py          # MCMC sampling (emcee, nautilus)
-│   ├── likelihood_worker.py     # Likelihood, worker init, SALT2mu interface
-│   ├── salt2mu.py       # SALT2mu.exe subprocess wrapper
-│   ├── utils.py         # 
-│   └── log.py           # Shared logging configuration
-├── tests/               # Test suite
-├── config/              # Example configuration files
-├── pyproject.toml       # Package metadata and dependencies
+│   ├── __init__.py          # Package initialization
+│   ├── cli.py               # Config dataclass and main entry point
+│   ├── mcmc.py              # MCMC sampling (emcee, nautilus)
+│   ├── likelihood_worker.py # Likelihood, prior, and per-worker SALT2mu state
+│   ├── salt2mu.py           # SALT2mu.exe subprocess wrapper and PDF writers
+│   ├── utils.py             # Parameter expansion, initialization, histogram utilities
+│   ├── plot_chains.py       # Post-run chain visualisation and summary statistics
+│   └── log.py               # Shared logging configuration
+├── scripts/
+│   └── plot_chains.py       # Thin wrapper for the plot_chains entry point
+├── tests/                   # Test suite
+├── config/                  # Example configuration files
+├── pyproject.toml           # Package metadata and dependencies
 └── README.md
 ```
 
 ## Output Directory Structure
 
-Running `dust2dusty` creates the following output tree (default `./dust2dust_output/`):
+Running `dust2dusty` creates the following output tree:
 
 ```
 {outdir}/
 ├── chains/                               # MCMC chain storage
-│   ├── {data_input}-chains.h5            # Full chains (HDF5)
+│   ├── {data_input}-chains.h5            # Full chains (HDF5, emcee backend)
 │   ├── {data_input}-autocorr.npz         # Autocorrelation time history (emcee only)
 │   ├── {data_input}-samples_thinned.npz  # Thinned/posterior samples
-│   └── {data_input}-debug_chains.txt     # Debug run chains (--DEBUG only)
+│   └── {data_input}-debug_chains.txt     # Debug run chains (--DEBUG_RUN only)
 ├── logs/                                 # All log files
 │   ├── master.log                        # Master process: config, setup, MCMC progress
-│   ├── worker_0.log                      # Worker rank 0: likelihood evaluations
+│   ├── worker_00.log                     # Worker rank 0: likelihood evaluations
 │   ├── worker_N.log                      # Worker rank N (MPI only)
-│   ├── worker_salt2mu_0.log              # SALT2mu subprocess I/O for worker 0
+│   ├── worker_salt2mu_00.log             # SALT2mu subprocess I/O for worker 0
 │   └── worker_salt2mu_N.log              # SALT2mu subprocess I/O for worker N
-├── realdata_files/                       # Real data SALT2mu outputs
+├── realdata_salt2mu_files/               # Real data SALT2mu outputs
 └── worker_salt2mu_files/                 # Per-worker SALT2mu subprocess files
     ├── {rank}_SUBPROCESS_SALT2MU_RES.DAT
     ├── {rank}_GENPDF_PYTHONCROSSTALK.DAT
     └── {rank}_SUBPROCESS_SALT2MU_LOG.STDOUT
 ```
 
-In serial mode you get `master.log` + `worker_0.log` + `worker_salt2mu_0.log`.
-In MPI mode with N ranks you get `master.log` + `worker_{0..N-1}.log` + `worker_salt2mu_{0..N-1}.log`.
+In serial mode you get `master.log` + `worker_00.log` + `worker_salt2mu_00.log`.
+In MPI mode with N ranks you get `master.log` + `worker_{00..N-1}.log` + `worker_salt2mu_{00..N-1}.log`.
 
 ## CLI Flags
 
@@ -126,9 +128,8 @@ In MPI mode with N ranks you get `master.log` + `worker_{0..N-1}.log` + `worker_
 |------|-------------|
 | `--SAMPLER emcee` | Ensemble MCMC sampler (default). Convergence via autocorrelation time. |
 | `--SAMPLER nautilus` | Importance sampler with neural networks. Returns Bayesian evidence `log_z`. |
-| `--NWALKERS N` | Number of walkers for emcee (default: `2 * ndim`). Minimum: `2 * ndim`. |
-| `--USE_MPI` | Distribute likelihood evaluations across MPI ranks. |
 | `--FORCE_OVERRIDE` | Remove and recreate output directory if it already exists. |
+| `--RESUME OLD_DIR` | Copy chains from OLD_DIR and continue sampling. |
 
 ### Debug modes
 
@@ -136,11 +137,11 @@ In MPI mode with N ranks you get `master.log` + `worker_{0..N-1}.log` + `worker_
 |------|---------|---------------|---------|----------|
 | *(none)* | INFO (file), WARNING (console) | Full convergence run | Production (optmask=4) | Production runs |
 | `--VERBOSE` | INFO (file + console) | Full convergence run | Production (optmask=4) | Monitor progress on console |
-| `--DEBUG` | DEBUG (file + console) | 3 steps/calls, then exit | Debug (optmask=1, FITRES) | Quick sanity checks |
+| `--DEBUG_RUN` | DEBUG (file + console) | 3 steps/calls, then exit | Debug (optmask=1, FITRES) | Quick sanity checks |
 | `--DEBUG_FULL` | DEBUG (file + console) | Full convergence run | Production (optmask=4) | Diagnose issues during full runs |
 | `--TEST_RUN` | DEBUG (file + console) | Single likelihood eval | Debug (optmask=1, FITRES) | Verify setup without MCMC |
 
-- `--DEBUG`: Runs only 3 MCMC steps (emcee) or 3 likelihood calls (nautilus), saves a debug chain text file, then exits cleanly.
+- `--DEBUG_RUN`: Runs only 3 MCMC steps (emcee) or 3 likelihood calls (nautilus), saves a debug chain text file, then exits cleanly.
 - `--DEBUG_FULL`: Runs the full production MCMC with DEBUG-level logging to console and log files. Useful for diagnosing issues that only appear during longer runs.
 - `--TEST_RUN`: Evaluates the likelihood once at the starting parameter values and exits. No MCMC sampling is performed.
 
@@ -165,11 +166,12 @@ ruff check src/dust2dusty tests
 - numpy >= 1.20.0
 - pandas >= 1.3.0
 - emcee >= 3.1.0
+- h5py
 - pyyaml >= 6.0
 - matplotlib >= 3.5.0
-- seaborn >= 0.11.0
+- schwimmbad
 - nautilus-sampler (optional, for `--SAMPLER nautilus`)
-- mpi4py (optional, for `--USE_MPI`)
+- mpi4py (optional, for MPI runs)
 
 ## License
 

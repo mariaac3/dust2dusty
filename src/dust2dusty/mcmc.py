@@ -1,8 +1,24 @@
 """
-MCMC sampling module for DUST2DUSTY.
+MCMC sampling orchestration for DUST2DUSTY.
 
-This module contains the main MCMC sampling function supporting emcee
-and nautilus samplers.
+This module contains the top-level MCMC() entry point and sampler-specific
+helpers for emcee and nautilus.
+
+Sampler support:
+    emcee   — Ensemble MCMC with HDF5 backend and autocorrelation convergence
+              monitoring.  MPI workers are managed by schwimmbad.MPIPool.
+    nautilus — Importance sampler with neural-network-based space exploration.
+              MPI workers are managed by mpi4py.futures.MPIPoolExecutor
+              (bypasses schwimmbad).
+
+Key functions:
+    MCMC              — Top-level entry point; dispatches to _run_emcee or
+                        _run_nautilus based on config.SAMPLER.
+    _run_emcee        — emcee sampling loop with convergence monitoring.
+    _finalize_emcee   — Burn-in / thinning and .npz output for emcee.
+    _run_nautilus     — nautilus sampling run.
+    _finalize_nautilus— Posterior extraction and .npz output for nautilus.
+    cleanup_workers   — Broadcast SALT2mu subprocess shutdown to all workers.
 """
 
 from __future__ import annotations
@@ -58,20 +74,18 @@ def MCMC(
     enter this code path.
 
     Args:
-        config: Configuration object with parameters and paths (None for MPI workers).
-        pos: Initial walker positions array of shape (nwalkers, ndim) (None for workers
-            and unused by nautilus).
-        nwalkers: Number of MCMC walkers (0 for workers, unused by nautilus).
-        ndim: Number of parameters (dimensions) (0 for workers).
-        realdata_salt2mu_results: Dictionary containing real data fit results (None for workers).
-        debug: If True, run in debug mode (3 iterations for emcee, 3 likelihood calls for
-            nautilus; no persistent HDF5 backend).
-        debug_logging: If True, enable DEBUG-level logging on workers
-            without changing MCMC execution or SALT2mu behavior.
-        max_iterations: Maximum number of iterations / likelihood calls before stopping.
-            For nautilus this maps to n_like_max in sampler.run().
-        convergence_check_interval: Check convergence every N steps (emcee only).
-        sampler: Which sampler to use: 'emcee' (default) or 'nautilus'.
+        config: Configuration object with parameters and paths. Pass None for
+            MPI worker processes (rank > 0), which receive their config via
+            MPI broadcast and then block in the schwimmbad worker pool.
+        realdata_salt2mu_results: Dict containing real-data SALT2mu fit results
+            (beta, sigint, binned_dists, …). Pass None for MPI workers.
+        debug: If True, run in short-circuit debug mode: 3 iterations for
+            emcee or 3 likelihood calls for nautilus, with no persistent HDF5
+            backend written.
+        max_iterations: Maximum number of MCMC steps (emcee) or likelihood
+            calls (nautilus) before stopping regardless of convergence.
+        convergence_check_interval: Check emcee convergence every this many
+            steps (emcee only; ignored by nautilus).
 
     Returns:
         None.
@@ -250,12 +264,24 @@ def _run_emcee(
     # Create backend file to save chain progress
     if debug:
         backend = None
+        p0_start = p0
     else:
+        backend = emcee.backends.HDFBackend(chain_file)
+        if config.resume:
+            # Continue from where the chain stopped — do NOT reset the backend
+            p0_start = backend.get_last_sample()
+            logger.info(
+                f"Resuming emcee chain from iteration {backend.iteration} ({chain_file.name})"
+            )
+            with h5py.File(backend.filename, "r") as f:
+                par_names = f[backend.name].attrs["parameter_names"]
+
+        else:
+            backend.reset(nwalkers, ndim)
+            p0_start = p0
+            logger.debug(f"Chain storage initialized: {chain_file}")
         backend = emcee.backends.HDFBackend(chain_file, thin=5)
         backend.reset(nwalkers, ndim)
-
-        with h5py.File(backend.filename, "a") as f:
-            f[backend.name].attrs["parameter_names"] = par_names
 
         logger.debug(f"Chain storage initialized: {chain_file}")
 
@@ -278,8 +304,12 @@ def _run_emcee(
         ],
     )
 
+    if not config.resume and backend is not None:
+        with h5py.File(backend.filename, "a") as f:
+            f[backend.name].attrs["parameter_names"] = list(sampler_obj.parameter_names.keys())
+
     if debug:
-        sampler_obj.run_mcmc(p0, 3)
+        sampler_obj.run_mcmc(p0_start, 3)
 
         debug_chain_file = chain_file.with_name(chain_file.stem + "-debug_chains").with_suffix(
             ".txt"
@@ -296,7 +326,7 @@ def _run_emcee(
         return
 
     # Run with convergence monitoring
-    for _ in sampler_obj.sample(p0, iterations=max_iterations, progress=False):
+    for _ in sampler_obj.sample(p0_start, iterations=max_iterations, progress=False):
         if sampler_obj.iteration % convergence_check_interval:
             continue
 
@@ -433,17 +463,14 @@ def _run_nautilus(
 
     Args:
         config: Configuration object with parameter metadata and paths.
-        realdata_salt2mu_results: Real-data SALT2mu fit results (currently
-            forwarded for context; not directly consumed here).
-        ndim: Number of parameters (dimensions).
+        par_names: Ordered list of expanded parameter names.
+        par_bounds: Dict mapping parameter name → [lo, hi] bounds used to
+            construct the nautilus Prior.
         pool: Pool object passed directly to ``nautilus.Sampler``
-            (MPIPoolExecutor for MPI, SerialPool for serial runs).
-        n_proc: Total number of MPI processes (1 for serial runs).
+            (MPIPoolExecutor for MPI, schwimmbad.SerialPool for serial).
         debug: If True, cap at 3 likelihood calls and skip finalisation.
-        debug_logging: If True, DEBUG-level logging is active on workers
-            (does not change sampling behaviour).
         chain_file: ``pathlib.Path`` to the HDF5 chain file passed to
-            ``nautilus.Sampler`` as ``filepath``.
+            ``nautilus.Sampler`` as ``filepath``.  Ignored in debug mode.
         max_iterations: Maximum number of likelihood calls (``n_like_max``)
             in normal mode.
 
@@ -475,9 +502,12 @@ def _run_nautilus(
         resume=not debug,
     )
 
-    logger.info(
-        f"nautilus sampler created. Chain file: {chain_file if not debug else '(none, debug mode)'}"
-    )
+    if config.resume and not debug:
+        logger.info(f"Resuming nautilus sampler from existing chain: {chain_file.name}")
+    else:
+        logger.info(
+            f"nautilus sampler created. Chain file: {chain_file if not debug else '(none, debug mode)'}"
+        )
 
     run_kwargs: dict[str, Any] = {"verbose": True}
     if debug:

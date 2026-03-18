@@ -2,14 +2,18 @@
 Command-line interface for DUST2DUSTY.
 
 This module provides the main entry point for running DUST2DUSTY from the
-command line, as well as configuration loading and the Config dataclass.
+command line, as well as configuration loading via the Config dataclass.
 
 Usage:
-    dust2dusty --CONFIG config.yml [--DEBUG] [--DEBUG_FULL] [--TEST_RUN] [--NOWEIGHT]
+    dust2dusty CONFIG_FILE OUTPUT_DIR [options]
 
-Example:
-    dust2dusty --CONFIG IN_DUST2DUST.yml --DEBUG
-    dust2dusty --CONFIG IN_DUST2DUST.yml --DEBUG_FULL
+Examples:
+    dust2dusty config.yml my_run/
+    dust2dusty config.yml my_run/ --DEBUG_RUN
+    dust2dusty config.yml my_run/ --DEBUG_FULL
+    dust2dusty config.yml my_run/ --TEST_RUN
+    dust2dusty config.yml my_run/ --SAMPLER nautilus
+    dust2dusty config.yml my_run/ --RESUME old_run/
 """
 
 from __future__ import annotations
@@ -39,38 +43,31 @@ class Config:
     """
     Configuration dataclass for DUST2DUSTY.
 
-    Provides type-safe access to all configuration parameters with attribute
-    access syntax (config.data_input instead of config['DATA_INPUT']).
+    Provides type-safe access to all configuration parameters loaded from a
+    YAML file and merged with command-line arguments.
 
     Attributes:
+        OUTPUT_DIR: Path to the output directory for this run.
         data_input: Path to real data input file for SALT2mu.
         sim_input: Path to simulation input file for SALT2mu.
         simref_file: Path to simulation reference file.
-        outdir: Output directory for results.
-        chains: Path to existing chains file (for resuming).
-        fitted_params: List of parameter names to fit.
-        params: Initial parameter values for test runs.
-        param_dists: Maps parameters to distribution shapes.
-        splitdict: Defines parameter splits by host properties.
-        splitparam: Primary split parameter name.
-        parameter_initialization: Initialization specs for each parameter.
-        splitarr: Array generation strings for split variables.
-        CMD_DATA: Command-line override for data input.
-        CMD_SIM: Command-line override for simulation input.
-        TEST_RUN: If True, run single likelihood evaluation only.
-        DEBUG: If True, enable debug mode (3 iterations, verbose output,
-            SALT2mu FITRES output).
-        DEBUG_FULL: If True, run full MCMC with DEBUG-level logging
-            but production SALT2mu settings.
+        chains: Path to existing chains file (unused directly; resume via --RESUME).
+        fitted_params: Dict mapping parameter names to their distribution/split config.
+        parameter_inits: Per-parameter initialization dicts (p0, p0_std, bounds).
+        salt2mu_genpdf_grid: Optional overrides for the default parameter grid ranges.
+        USE_MPI: If True, distribute likelihood evaluations across MPI ranks.
+        TEST_RUN: If True, run single likelihood evaluation only (no MCMC).
+        DEBUG_RUN: If True, run 3 MCMC iterations with DEBUG-level logging.
+        DEBUG_FULL: If True, run full MCMC with DEBUG-level logging.
         NOWEIGHT: If True, disable reweighting function.
+        VERBOSE: If True, show INFO-level messages on the console.
+        SAMPLER: Sampler to use: 'emcee' (default) or 'nautilus'.
+        NWALKERS: Number of emcee walkers (None = auto, defaults to 2*ndim).
+        RESUME: If True, continue chains from a previous run.
 
     Class Attributes:
-        PARAM_TO_SALT2MU: Maps internal names to SALT2mu column names.
-        SUBPROCESS_TO_SNANA: Maps subprocess names to SNANA names.
-        DEFAULT_PARAMETER_RANGES: Value grids for PDF generation.
-        SPLIT_PARAMETER_FORMATS: Binning specs for split parameters.
-        PARAMETER_OVERRIDES: Fixed parameters (not fitted).
-        DISTRIBUTION_PARAMETERS: Parameter names for each distribution type.
+        _DISTRIBUTION_PARAMETERS: Parameter names for each distribution type.
+        _SALT2MU_EXE: Name of the SALT2mu executable (must be on PATH).
     """
 
     # # Split parameter format specifications
@@ -117,6 +114,7 @@ class Config:
     VERBOSE: bool = False
     SAMPLER: str = "emcee"
     NWALKERS: int | None = None
+    RESUME: bool = False
 
     @classmethod
     def from_dict(
@@ -127,7 +125,8 @@ class Config:
 
         Args:
             config_dict: Dictionary loaded from YAML configuration file.
-            args: Parsed command-line arguments.
+            args: Parsed command-line arguments (from get_args()).
+            USE_MPI: Whether MPI is active for this run.
 
         Returns:
             Configured Config dataclass instance.
@@ -149,6 +148,7 @@ class Config:
             NOWEIGHT=args.NOWEIGHT,
             VERBOSE=args.VERBOSE,
             SAMPLER=args.SAMPLER,
+            RESUME=bool(args.RESUME),
             # Add MPI flag
             USE_MPI=USE_MPI,  # MPI is auto-detected
         )
@@ -374,6 +374,17 @@ def get_args() -> argparse.Namespace:
         help="MCMC sampler to use: 'emcee' (default), 'zeus', or 'nautilus'",
     )
 
+    parser.add_argument(
+        "--RESUME",
+        type=str,
+        default=None,
+        metavar="OLD_OUTPUT_DIR",
+        help=(
+            "Resume chains from a previous run. Provide the path to the old output directory. "
+            "Chains and config will be copied into OUTPUT_DIR before sampling continues."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -391,6 +402,60 @@ def _get_mpi_info() -> tuple[int, int]:
         return comm.Get_rank(), comm.Get_size()
     except ImportError:
         return 0, 1
+
+
+def _handle_resume(
+    config: Config,
+    resume_dir: Path,
+    logger: logging.Logger,
+) -> None:
+    """
+    Copy chains and config from a previous run into the new output directory.
+
+    Searches for HDF5 chain files in `resume_dir/chains/` and copies them
+    into the corresponding subdirectory of the new output directory.  Also
+    copies any YAML config files found at the root of `resume_dir` under a
+    `resumed_from_` prefix so the provenance is preserved.
+
+    Args:
+        config: Config for the current (new) run.  `config.OUTPUT_DIR` is
+            used as the destination.
+        resume_dir: Path to the previously completed (or interrupted) output
+            directory whose chains should be continued.
+        logger: Logger instance for progress messages.
+
+    Raises:
+        FileNotFoundError: If `resume_dir` does not exist.
+        RuntimeError: If no chain files are found in `resume_dir/chains/`.
+    """
+    resume_dir = Path(resume_dir)
+    if not resume_dir.exists():
+        raise FileNotFoundError(f"Resume directory not found: {resume_dir.absolute()}")
+
+    new_outdir = Path(config.OUTPUT_DIR)
+    old_chains_dir = resume_dir / "chains"
+    new_chains_dir = new_outdir / "chains"
+
+    # Copy chain files (HDF5)
+    chain_files = list(old_chains_dir.glob("*.h5")) if old_chains_dir.exists() else []
+    if not chain_files:
+        raise RuntimeError(
+            f"No chain files (*.h5) found in {old_chains_dir}. "
+            "Cannot resume without an existing chain."
+        )
+
+    for chain_file in chain_files:
+        dest = new_chains_dir / chain_file.name
+        shutil.copy2(chain_file, dest)
+        logger.info(f"Copied chain: {chain_file.name} -> {dest}")
+
+    # Copy YAML config files from root of old outdir for provenance
+    for cfg_file in resume_dir.glob("*.yml"):
+        dest = new_outdir / f"resumed_from_{cfg_file.name}"
+        shutil.copy2(cfg_file, dest)
+        logger.info(f"Copied old config: {cfg_file.name} -> {dest.name}")
+
+    logger.info(f"Resume setup complete: {len(chain_files)} chain file(s) copied from {resume_dir}")
 
 
 def _install_mpi_excepthook() -> None:
@@ -464,6 +529,9 @@ def main() -> int:
         config = _load_config(args, logger, USE_MPI=USE_MPI)
         add_file_handler(str(Path(config.OUTPUT_DIR) / "logs" / "master.log"))
         logger.info("Master log file created.")
+
+        if args.RESUME:
+            _handle_resume(config, Path(args.RESUME), logger)
 
         realdata_salt2mu_results = _init_salt2mu_realdata(config, logger, debug=debug)
 

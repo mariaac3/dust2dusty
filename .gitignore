@@ -36,6 +36,7 @@ ENV/
 
 # Jupyter
 .ipynb_checkpoints/
+*.ipynb
 
 # MCMC output files
 chains/

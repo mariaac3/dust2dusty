@@ -1,3 +1,16 @@
+"""
+Post-MCMC chain visualisation and summary statistics for DUST2DUSTY.
+
+Reads an emcee HDF5 backend file, plots per-parameter walker traces and
+the log-probability strip, and prints a median ± 1σ summary table to the
+terminal. Parameter names are read automatically from the HDF5 file's
+``parameter_names`` attribute written by the MCMC module; they can also be
+overridden via -n/--names.
+
+CLI usage:
+    plot_chains <backend.h5> [-o output.png] [-n p1 p2 ...] [-d discard] [-t thin] [-c ncols]
+"""
+
 import argparse
 import io
 import math
@@ -6,34 +19,20 @@ import shutil
 import subprocess
 
 import emcee
+import h5py
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Distribution parameter specs (mirrors cli.py Config.DISTRIBUTION_PARAMETERS)
-_DISTRIBUTION_PARAMETERS = {
-    "Gaussian": ["mu", "std"],
-    "Skewed Gaussian": ["mu", "std_l", "std_r"],
-    "Exponential": ["Tau"],
-    "LogNormal": ["ln_mu", "ln_std"],
-    "Double Gaussian": ["a1", "mu1", "std1", "mu2", "std2"],
-}
 
-
-def names_from_config(config_path: str) -> list[str]:
-    """Extract expanded parameter names from a dust2dusty YAML config file."""
-    import yaml
-
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f)
-
-    fitted_params = cfg["FITTED_PARAMS"]
-    param_dists = cfg["PARAM_DISTS"]
-    splitdict = cfg.get("SPLITDICT", {})
-
-    from dust2dusty.utils import pconv
-
-    return pconv(fitted_params, param_dists, splitdict, _DISTRIBUTION_PARAMETERS)
+def names_from_hdf5(backend_path: str) -> list[str] | None:
+    """Read parameter names stored in the HDF5 chain file, or return None if absent."""
+    with h5py.File(backend_path, "r") as f:
+        for group_name in f:
+            grp = f[group_name]
+            if "parameter_names" in grp.attrs:
+                return list(grp.attrs["parameter_names"])
+    return None
 
 
 def fmt_val(v, eu, el):
@@ -78,6 +77,30 @@ def print_table(param_names, flat_chain):
 
 
 def plot_chains(backend_path, output=None, param_names=None, discard=0, thin=1, ncols=3):
+    """
+    Plot walker traces and log-probability from an emcee HDF5 backend.
+
+    Creates a figure with one panel per parameter (walker traces over steps)
+    plus a log-probability strip, and prints a median ± 1σ table to the
+    terminal.  Saves the figure to a PNG file or displays it inline via
+    imgcat.
+
+    Args:
+        backend_path: Path to the emcee HDF5 backend file.
+        output: If given, save the figure to this PNG path; otherwise display
+            inline using imgcat (raises RuntimeError if imgcat is not found).
+        param_names: List of parameter name strings.  If None, names are read
+            from the HDF5 ``parameter_names`` attribute; falls back to
+            ``['p0', 'p1', ...]`` if the attribute is absent.
+        discard: Number of initial steps to discard (burn-in).
+        thin: Thinning factor applied when reading the chain.
+        ncols: Number of columns in the parameter-panel grid.
+
+    Raises:
+        FileNotFoundError: If backend_path does not exist.
+        ValueError: If the length of param_names does not match the chain dimension.
+        RuntimeError: If no output path is given and imgcat is not on PATH.
+    """
     if not os.path.exists(backend_path):
         raise FileNotFoundError(f"Backend file not found: {backend_path}")
 
@@ -178,23 +201,26 @@ def plot_chains(backend_path, output=None, param_names=None, discard=0, thin=1, 
 
 
 def main():
+    """
+    Entry point for the plot_chains command.
+
+    Parses command-line arguments, reads parameter names from the HDF5 file
+    (unless overridden with -n), and calls plot_chains().
+    """
     parser = argparse.ArgumentParser(description="Plot emcee walker chains + estimates.")
     parser.add_argument("backend")
     parser.add_argument(
         "-o", "--output", default=None, help="Save to PNG file; omit to display inline with imgcat"
     )
-    parser.add_argument("-n", "--names", nargs="*", default=None)
-    parser.add_argument(
-        "--config", default=None, help="Path to dust2dusty YAML config to auto-derive param names"
-    )
+    parser.add_argument("-n", "--names", nargs="*", default=None, help="Override param names (read from HDF5 by default)")
     parser.add_argument("-d", "--discard", type=int, default=0)
     parser.add_argument("-t", "--thin", type=int, default=1)
     parser.add_argument("-c", "--ncols", type=int, default=3)
     args = parser.parse_args()
 
     param_names = args.names
-    if param_names is None and args.config is not None:
-        param_names = names_from_config(args.config)
+    if param_names is None:
+        param_names = names_from_hdf5(args.backend)
 
     plot_chains(
         backend_path=args.backend,
