@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import emcee
+import h5py
 import numpy as np
 import schwimmbad
 from numpy.typing import NDArray
@@ -127,22 +128,7 @@ def MCMC(
         "log_sampling": log_sampling,
     }
 
-    # Build the chain file (used by both samplers)
-    chain_file = Path(config.OUTPUT_DIR) / "chains"
-    chain_file /= config.data_input.stem + "-chains.h5"
-
-    # Show log info
-    logger.info("=" * 60)
-    logger.info(f"Starting MCMC sampling ({config.SAMPLER})...")
-    logger.info(f"  Dimensions: {ndim}")
-    logger.info(f"  Parameters: {', '.join(par_names)}")
-    if not debug:
-        logger.info(f"  Chain file: {chain_file}")
-    logger.debug("DEBUG MODE ON")
-    logger.info("=" * 60 + "\n")
-
     # Master send instruction to worker for init
-
     if config.USE_MPI:
         n_proc = comm.Get_size()
         # Broadcast initialization data to all workers BEFORE creating pool
@@ -153,8 +139,24 @@ def MCMC(
         pool = schwimmbad.SerialPool()
         _init_worker(config, realdata_salt2mu_results, likelihood_parameters, debug)
         n_proc = 1
-
+    # 2 walkers per worker is optimum
     emcee_nwalkers = int(2 * (n_proc - 1)) if n_proc > 1 else max(2 * ndim, 8)
+
+    # Build the chain file (used by both samplers)
+    chain_file = Path(config.OUTPUT_DIR) / "chains"
+    chain_file /= config.data_input.stem + "-chains.h5"
+
+    # Show log info
+    logger.info("=" * 60)
+    logger.info(f"Starting MCMC sampling ({config.SAMPLER})...")
+    logger.info(f"  Dimensions: {ndim}")
+    logger.info(f"  Parameters: {', '.join(par_names)}")
+    if config.SAMPLER == "emcee":
+        logger.info(f"  Walkers: {emcee_nwalkers}")
+    if not debug:
+        logger.info(f"  Chain file: {chain_file}")
+    logger.debug("DEBUG MODE ON")
+    logger.info("=" * 60 + "\n")
 
     with pool:
         # ------------------------------------------------------------------
@@ -176,6 +178,7 @@ def MCMC(
         # ------------------------------------------------------------------
         elif config.SAMPLER == "emcee":
             p0 = np.random.normal(p0_mu, p0_std, size=(emcee_nwalkers, ndim))
+
             _run_emcee(
                 config=config,
                 par_names=par_names,
@@ -248,8 +251,12 @@ def _run_emcee(
     if debug:
         backend = None
     else:
-        backend = emcee.backends.HDFBackend(chain_file)
+        backend = emcee.backends.HDFBackend(chain_file, thin=5)
         backend.reset(nwalkers, ndim)
+
+        with h5py.File(backend.filename, "a") as f:
+            f[backend.name].attrs["parameter_names"] = par_names
+
         logger.debug(f"Chain storage initialized: {chain_file}")
 
         # Track autocorrelation time history
@@ -281,7 +288,7 @@ def _run_emcee(
         write_chain_to_text(
             sampler_obj.get_chain(),
             sampler_obj.get_log_prob(),
-            sampler_obj.parameter_names,
+            list(sampler_obj.parameter_names.keys()),
             debug_chain_file,
         )
         logger.info(f"Debug chains saved to: {debug_chain_file}")

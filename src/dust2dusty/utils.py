@@ -132,25 +132,29 @@ def get_sampled_par_names_and_init(config) -> tuple[list[str], NDArray, NDArray,
                     for dist_p in config._DISTRIBUTION_PARAMETERS[pdic["dist"]]
                 ]
             )
-    p0_mu = np.array([config.parameter_inits[p]["p0"] for p in sampled_par_names])
-    p0_std = np.array([config.parameter_inits[p]["p0_std"] for p in sampled_par_names])
-    log_sampling = np.array(
-        [True if "tau" in p or "std" in p else False for p in sampled_par_names], dtype=bool
-    )
 
-    # log sampling of variance
-    p0_mu[log_sampling] = np.log(p0_mu[log_sampling])
-    p0_std[log_sampling] = np.log(p0_std[log_sampling])
-
-    par_bounds = np.array(
+    log_sampling = {p: True if "tau" in p or "std" in p else False for p in sampled_par_names}
+    p0_mu = np.array(
         [
-            config.parameter_inits[p]["bounds"]
-            if not log_sampling[i]
-            else [-np.inf, config.parameter_inits[p]["bounds"][-1]]
-            for i, p in enumerate(sampled_par_names)
+            config.parameter_inits[p]["p0"]
+            if not log_sampling[p]
+            else np.log(config.parameter_inits[p]["p0"])
+            for p in sampled_par_names
+        ]
+    )
+    p0_std = np.array(
+        [
+            config.parameter_inits[p]["p0_std"] if not log_sampling[p] else 0.1
+            for p in sampled_par_names
         ]
     )
 
+    par_bounds = {
+        p: config.parameter_inits[p]["bounds"]
+        if not log_sampling[p]
+        else [-np.inf, config.parameter_inits[p]["bounds"][-1]]
+        for p in sampled_par_names
+    }
     return sampled_par_names, p0_mu, p0_std, par_bounds, log_sampling
 
 

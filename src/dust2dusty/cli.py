@@ -299,6 +299,7 @@ def _load_config(args: argparse.Namespace, logger: logging.Logger, USE_MPI=False
     logger.info(f"-- Simulation: {Path(config.sim_input).absolute()}")
     logger.info(f"-- Parameters to fit: {', '.join(config.fitted_params.keys())}")
     logger.info(f"-- Output directory: {Path(config.OUTPUT_DIR).absolute()}")
+    logger.info(f"-- USE MPI: {USE_MPI}")
 
     return config
 

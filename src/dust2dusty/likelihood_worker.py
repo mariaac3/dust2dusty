@@ -157,19 +157,19 @@ def _init_salt2mu_worker_connection() -> SALT2mu:
         - 2: Creates M0DIF file
         - 4: Implements randomseed option (default for production)
     """
-    outdir = _CONFIG.OUTPUT_DIR / "worker_salt2mu_files"
+    salt2mu_outdir = _CONFIG.OUTPUT_DIR / "worker_salt2mu_files"
 
-    subprocess_salt2mu_res = outdir / f"{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_RES.DAT"
+    subprocess_salt2mu_res = salt2mu_outdir / f"{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_RES.DAT"
     subprocess_salt2mu_res.touch()
 
-    genpdf_crosstalk_file = outdir / f"{_WORKER_INDEX:02d}_GENPDF_PYTHONCROSSTALK.DAT"
+    genpdf_crosstalk_file = salt2mu_outdir / f"{_WORKER_INDEX:02d}_GENPDF_PYTHONCROSSTALK.DAT"
     genpdf_crosstalk_file.touch()
 
-    log_dir = outdir / "logs"
-    log_dir.mkdir(exist_ok=True)
-
-    subprocess_salt2mu_log = outdir / f"{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_LOG.STDOUT"
+    subprocess_salt2mu_log = salt2mu_outdir / f"{_WORKER_INDEX:02d}_SUBPROCESS_SALT2MU_LOG.STDOUT"
     subprocess_salt2mu_log.touch()
+
+    log_dir = _CONFIG.OUTPUT_DIR / "logs"
+    log_dir.mkdir(exist_ok=True)
 
     # Generate output table specification (color bins x split parameter bins)
     arg_outtable = "'c(6,-0.2:0.25)*HOST_LOGMASS(2,0:20)'"
@@ -454,14 +454,15 @@ def log_prior(theta_dic: dict[str, NDArray[np.float64]]) -> float:
     Returns:
         0.0 if all parameters within bounds, -np.inf otherwise.
     """
-    for (key, value), bounds in zip(theta_dic.items(), _LIKELIHOOD_PARAMETERS["par_bounds"]):
-        if not (bounds[0] < value < bounds[1]):
-            logger.debug(f"Prior on {key} is not in [{bounds[0]}, {bounds[1]}]")
+    for p, val in theta_dic.items():
+        bounds = _LIKELIHOOD_PARAMETERS["par_bounds"][p]
+        if not (bounds[0] < val < bounds[1]):
+            logger.debug(f"Prior on {[p]} is not in [{bounds[0]}, {bounds[1]}]")
             return -np.inf
     return 0.0
 
 
-def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float:
+def log_probability(theta_dic: dict[str, np.float64] | list[float], **kwargs) -> float:
     """
     Calculate log-probability (posterior) for MCMC sampling.
 
@@ -477,12 +478,11 @@ def log_probability(theta: NDArray[np.float64] | list[float], **kwargs) -> float
     logger.debug(
         f"\n\n#### COMPUTING LOGPROB ON ITERATION {_WORKER_SALT2MU_CONNECTION.iter} ####\n"
     )
-
     # De-log
-    theta[_LIKELIHOOD_PARAMETERS["log_sampling"]] = np.exp(
-        theta[_LIKELIHOOD_PARAMETERS["log_sampling"]]
-    )
-    theta_dic = dict(zip(_LIKELIHOOD_PARAMETERS["par_names"], theta))
+    theta_dic = {
+        k: np.exp(v) if _LIKELIHOOD_PARAMETERS["log_sampling"][k] else v
+        for k, v in theta_dic.items()
+    }
 
     logger.debug("   THETA: \n" + "\n".join([f"    -- {k} = {v}" for k, v in theta_dic.items()]))
 
@@ -560,6 +560,7 @@ def _init_worker(
     _WORKER_REALDATA_SALT2MU_RESULTS = realdata_salt2mu_results
 
     logger.info(f"==== Worker {_WORKER_INDEX} INITIALIZED ====")
+    logger.info(f"LIKELIHOOD PARAMETERS: {_LIKELIHOOD_PARAMETERS}")
     logger.info(f"DEBUG MODE: {_WORKER_DEBUGFLAG}")
     logger.info(f"Logger set to {log_path}")
     logger.info("============================================")
