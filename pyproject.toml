@@ -42,6 +42,7 @@ dependencies = [
     "seaborn>=0.11.0",
     "schwimmbad",
     "h5py",
+    "corner",
 ]
 
 [project.optional-dependencies]
@@ -68,6 +69,7 @@ Issues = "https://github.com/blc56/dust2dusty/issues"
 [project.scripts]
 dust2dusty = "dust2dusty.cli:main"
 d2d_plot_chains = "dust2dusty.plot_chains:main"
+d2d_plot_corner = "dust2dusty.plot_corner:main"
 
 [tool.setuptools.packages.find]
 where = ["./src"]
