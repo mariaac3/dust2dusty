@@ -338,7 +338,7 @@ def _run_emcee(
             converged = np.all(tau * 100 < sampler_obj.iteration)
             converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
 
-            logger.info(f"\nIteration {sampler_obj.iteration}:")
+            logger.info(f"==== Iteration {sampler_obj.iteration} ====")
             logger.info(f"  Mean tau: {np.mean(tau):.1f}")
             logger.info(f"  Min tau:  {np.min(tau):.1f}")
             logger.info(f"  Max tau:  {np.max(tau):.1f}")

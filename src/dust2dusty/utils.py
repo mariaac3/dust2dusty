@@ -241,6 +241,7 @@ def binned_dist(
 def norm_hist_to_data(
     datacount: NDArray[np.float64],
     simcount: NDArray[np.float64],
+    subsampling_ratio: float = 1,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
     """
     Normalize simulation histogram to match total counts in data.
@@ -260,14 +261,14 @@ def norm_hist_to_data(
             - simcount_normalized: Sim counts scaled by (datatot/simtot), zeros removed
             - poisson_err: Combined Poisson error per bin, zeros removed
     """
-    datatot = np.sum(datacount)
-    simtot = np.sum(simcount)
+    datatot = datacount.sum()
+    simtot = simcount.sum()
 
     norm = datatot / simtot
-
     ww = datacount != 0
 
-    poisson_err = np.sqrt(datacount + simcount * norm**2)
+    # poisson_err = np.sqrt(datacount + simcount * norm**2)
+    poisson_err = np.sqrt(datacount * (1 + 1 / subsampling_ratio))
     return datacount[ww], simcount[ww] * norm, poisson_err[ww]
 
 

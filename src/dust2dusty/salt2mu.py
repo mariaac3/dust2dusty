@@ -179,9 +179,7 @@ class SALT2mu:
             ) as stdout:
                 subprocess.run(self.command, shell=True, stdout=stdout)
             self.getData()
-            self.logger.info(
-                "\n =====================  END REAL DATA RUN ===================== \n\n"
-            )
+            self.logger.info("=====================  END REAL DATA RUN ===================== \n\n")
 
         else:
             self.logger.info("---------- INIT SALT2mu PROCESS ----------")
@@ -325,7 +323,9 @@ class SALT2mu:
                     raise RuntimeError(
                         f"SALT2mu output iteration does not match expected iteration. Seek {self.iter} found {iter}"
                     )
-            if "+-" in l:
+            elif "NEVT_SUM:" in l:
+                self.salt2mu_results["NEVT"] = int(l.split(":")[-1].split("#")[0])
+            elif "+-" in l:
                 parts = l.split("=")[1].split()
                 if "alpha" in l:
                     k = "alpha"

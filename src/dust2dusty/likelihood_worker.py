@@ -166,6 +166,7 @@ def _init_salt2mu_worker_connection() -> SALT2mu:
         f"SUBPROCESS_OUTPUT_TABLE={arg_outtable} "
         f"SUBPROCESS_OPTMASK=4 "
         f"SUBPROCESS_SIMREF_FILE={_CONFIG.simref_file} "
+        f"SUBPROCESS_NEVT_SIM_PRESCALE={int(_CONFIG.subsampling_ratio * _WORKER_REALDATA_SALT2MU_RESULTS['NEVT'])} "
     )
     connection = SALT2mu(
         cmd,
@@ -222,6 +223,8 @@ def compute_and_sum_loglikelihoods(
     simcount_dict: dict[str, Any] = defaultdict(float)
     poisson_dict: dict[str, Any] = defaultdict(float)
 
+    SIM_ERROR_FIXED_SCALE = 1 + 1 / _CONFIG.subsampling_ratio
+
     # ========== Parameter likelihood terms ==========
     # Beta (color-luminosity relation)
     logger.debug(
@@ -230,18 +233,12 @@ def compute_and_sum_loglikelihoods(
         f"{_WORKER_SALT2MU_CONNECTION.salt2mu_results['beta']}, "
         f"{_WORKER_REALDATA_SALT2MU_RESULTS['betaerr']}"
     )
-
-    ll_dict["beta"] = (
-        -0.5
-        * (
-            (
-                _WORKER_REALDATA_SALT2MU_RESULTS["beta"]
-                - _WORKER_SALT2MU_CONNECTION.salt2mu_results["beta"]
-            )
-            / _WORKER_REALDATA_SALT2MU_RESULTS["betaerr"]
-        )
-        ** 2
+    beta_diff = (
+        _WORKER_REALDATA_SALT2MU_RESULTS["beta"]
+        - _WORKER_SALT2MU_CONNECTION.salt2mu_results["beta"]
     )
+    beta_err = _WORKER_REALDATA_SALT2MU_RESULTS["betaerr"] * np.sqrt(SIM_ERROR_FIXED_SCALE)
+    ll_dict["beta"] = -0.5 * (beta_diff / beta_err) ** 2
 
     # Intrinsic scatter
     logger.debug(
@@ -250,18 +247,12 @@ def compute_and_sum_loglikelihoods(
         f"{_WORKER_SALT2MU_CONNECTION.salt2mu_results['sigint']}, "
         f"{_WORKER_REALDATA_SALT2MU_RESULTS['siginterr']}"
     )
-
-    ll_dict["sigint"] = (
-        -0.5
-        * (
-            (
-                _WORKER_REALDATA_SALT2MU_RESULTS["sigint"]
-                - _WORKER_SALT2MU_CONNECTION.salt2mu_results["sigint"]
-            )
-            / _WORKER_REALDATA_SALT2MU_RESULTS["siginterr"]
-        )
-        ** 2
+    sigint_diff = (
+        _WORKER_REALDATA_SALT2MU_RESULTS["sigint"]
+        - _WORKER_SALT2MU_CONNECTION.salt2mu_results["sigint"]
     )
+    sigint_err = _WORKER_REALDATA_SALT2MU_RESULTS["siginterr"]
+    ll_dict["sigint"] = -0.5 * (sigint_diff / sigint_err) ** 2
 
     # ========== Observable distributions ==========
 
@@ -269,8 +260,11 @@ def compute_and_sum_loglikelihoods(
     for k in ["c", "x1"]:
         res_key = f"{k}_hist"
         if res_key in binned_dists:
-            datacount, simcount, poisson_err = norm_hist_to_data(*binned_dists[res_key])
-            ll_dict[res_key] = -0.5 * np.sum((datacount - simcount) ** 2 / poisson_err**2)
+            datacount, simcount, poisson_err = norm_hist_to_data(
+                *binned_dists[res_key], subsampling_ratio=_CONFIG.subsampling_ratio
+            )
+            count_diff = datacount - simcount
+            ll_dict[res_key] = -0.5 * np.sum((count_diff / poisson_err) ** 2)
 
             # DEBUG PURPOSE
             datacount_dict[res_key] = datacount
@@ -281,56 +275,28 @@ def compute_and_sum_loglikelihoods(
             )
 
     for k in ["low", "high"]:
-        mask = (binned_dists["nevt_" + k][0] > 0) & (binned_dists["nevt_" + k][1] > 0)
+        mask = binned_dists["nevt_" + k][0] > 0
 
         # MURES #
-        data_mures, sim_mures = binned_dists["mures_" + k]
+        mures_diff = binned_dists["mures_" + k][0] - binned_dists["mures_" + k][1]
         poisson_err_mures = np.sqrt(
-            sum(
-                (
-                    rms**2 / nevt
-                    for rms, nevt in zip(binned_dists["rms_" + k], binned_dists["nevt_" + k])
-                )
-            )
+            binned_dists["rms_" + k][0] ** 2 / binned_dists["nevt_" + k][0] * SIM_ERROR_FIXED_SCALE
         )
 
-        data_mures, sim_mures, poisson_err_mures = (
-            data_mures[mask],
-            sim_mures[mask],
-            poisson_err_mures[mask],
-        )
+        mures_diff, poisson_err_mures = mures_diff[mask], poisson_err_mures[mask]
 
-        ll_dict["mures_" + k] = -0.5 * np.sum((data_mures - sim_mures) ** 2 / poisson_err_mures**2)
-
-        # DEBUG PURPOSE
-        datacount_dict["mures_" + k] = data_mures
-        simcount_dict["mures_" + k] = sim_mures
-        poisson_dict["mures_" + k] = poisson_err_mures
+        ll_dict["mures_" + k] = -0.5 * np.sum((mures_diff / poisson_err_mures) ** 2)
 
         # RMS #
-        data_rms, sim_rms = binned_dists["rms_" + k]
+        rms_diff = binned_dists["rms_" + k][0] - binned_dists["rms_" + k][1]
         poisson_err_rms = np.sqrt(
-            sum(
-                (
-                    rms**2 / (2 * nevt)
-                    for rms, nevt in zip(binned_dists["rms_" + k], binned_dists["nevt_" + k])
-                )
-            )
+            binned_dists["rms_" + k][0] ** 2
+            / (2 * binned_dists["nevt_" + k][0])
+            * SIM_ERROR_FIXED_SCALE
         )
-        data_rms, sim_rms, poisson_err_rms = (
-            data_rms[mask],
-            sim_rms[mask],
-            poisson_err_rms[mask],
-        )
+        rms_diff, poisson_err_rms = rms_diff[mask], poisson_err_rms[mask]
 
-        ll_dict["rms_" + k] = (
-            -0.5 * np.sum((data_rms - sim_rms) ** 2 / poisson_err_rms**2) * rms_weight
-        )
-
-        # DEBUG PURPOSE
-        datacount_dict["rms_" + k] = data_rms
-        simcount_dict["rms_" + k] = sim_rms
-        poisson_dict["rms_" + k] = poisson_err_rms
+        ll_dict["rms_" + k] = -0.5 * np.sum((rms_diff / poisson_err_rms) ** 2) * rms_weight
 
     # Check for invalid values
     invalid_components = []
@@ -403,6 +369,21 @@ def log_likelihood(
 
     # Run SALT2mu with these PDFs
     _WORKER_SALT2MU_CONNECTION.iterate(theta_dic, _CONFIG.fitted_params, last=last)
+
+    if (
+        _WORKER_SALT2MU_CONNECTION.salt2mu_results["NEVT"]
+        < 0.8 * _CONFIG.subsampling_ratio * _WORKER_REALDATA_SALT2MU_RESULTS["NEVT"]
+    ):
+        logger.warning("NEVT_SIMS ARE LOWER THAN 80% OF SUBSAMPLING_RATIO *  NEVT_REALDATA")
+        if (
+            _WORKER_SALT2MU_CONNECTION.salt2mu_results["NEVT"]
+            <= _WORKER_REALDATA_SALT2MU_RESULTS["NEVT"]
+        ):
+            logger.warning(
+                "NEVT_SIMS ARE LOWER THAN NEVT_REALDATA: this could be a bad parameter space, if it happens too often increase sims size "
+                "Return -np.inf"
+            )
+            return -np.inf
 
     if _WORKER_SALT2MU_CONNECTION.salt2mu_results["maxprob"] > 1.001:
         logger.warning(
@@ -544,8 +525,8 @@ def _init_worker(
     log_path = str(Path(config.OUTPUT_DIR) / "logs" / f"worker_{_WORKER_INDEX:02d}.log")
     add_file_handler(log_path)
 
-    _WORKER_SALT2MU_CONNECTION = _init_salt2mu_worker_connection()
     _WORKER_REALDATA_SALT2MU_RESULTS = realdata_salt2mu_results
+    _WORKER_SALT2MU_CONNECTION = _init_salt2mu_worker_connection()
 
     logger.info(f"==== Worker {_WORKER_INDEX} INITIALIZED ====")
     logger.info(f"LIKELIHOOD PARAMETERS: {_LIKELIHOOD_PARAMETERS}")

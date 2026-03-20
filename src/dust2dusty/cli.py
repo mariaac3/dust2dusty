@@ -62,7 +62,6 @@ class Config:
         NOWEIGHT: If True, disable reweighting function.
         VERBOSE: If True, show INFO-level messages on the console.
         SAMPLER: Sampler to use: 'emcee' (default) or 'nautilus'.
-        NWALKERS: Number of emcee walkers (None = auto, defaults to 2*ndim).
         RESUME: If True, continue chains from a previous run.
 
     Class Attributes:
@@ -102,6 +101,7 @@ class Config:
     fitted_params: dict[str, Any] = field(default_factory=dict)
     parameter_inits: dict[str, dict[str, Any]] = field(default_factory=dict)
     splitarr: dict[str, dict[str, Any]] = field(default_factory=dict)
+    subsampling_ratio: float = 10.0
 
     # - MPI flag
     USE_MPI: bool = False
@@ -113,7 +113,6 @@ class Config:
     NOWEIGHT: bool = False
     VERBOSE: bool = False
     SAMPLER: str = "emcee"
-    NWALKERS: int | None = None
     RESUME: bool = False
 
     @classmethod
@@ -140,6 +139,7 @@ class Config:
             fitted_params=config_dict["FITTED_PARAMS"],
             parameter_inits=config_dict["PARAMETER_INITS"],
             salt2mu_genpdf_grid=config_dict.get("SALT2MU_GENPDF_GRID", {}),
+            subsampling_ratio=config_dict.get("SUBSAMPLING_RATIO", 10),
             # Command-line arguments
             OUTPUT_DIR=Path(args.OUTPUT_DIR),
             TEST_RUN=args.TEST_RUN,
@@ -179,9 +179,7 @@ class Config:
         return split_pars_list[0]
 
 
-def _create_output_directories(
-    outdir: Path, config_file: Path, logger: logging.Logger, force: bool = False
-):
+def _create_output_directories(outdir: Path, config_file: Path, force: bool = False):
     """
     Create output directory structure for DUST2DUSTY results.
 
@@ -206,14 +204,12 @@ def _create_output_directories(
     # Use current directory if none specified
     if outdir.exists():
         if force:
-            logger.warning(f"Removing existing output directory: {outdir.absolute()}")
             shutil.rmtree(outdir)
         else:
             raise FileExistsError(
                 f"Output directory already exists: {outdir.absolute()}. Use --FORCE_OVERRIDE to overwrite."
             )
 
-    logger.debug(f"Create main directory {outdir.absolute()}")
     outdir.mkdir(parents=True, exist_ok=True)
 
     # Copy config
@@ -228,11 +224,10 @@ def _create_output_directories(
     ]
     for subdir in required_subdirs:
         subdir_path = outdir / subdir
-        logger.debug(f"Create sub directory {subdir_path.absolute()}")
         subdir_path.mkdir(parents=True, exist_ok=True)
 
 
-def _load_config(args: argparse.Namespace, logger: logging.Logger, USE_MPI=False) -> Config:
+def _load_config(args: argparse.Namespace, USE_MPI=False) -> Config:
     """
     Load configuration from YAML file and set up output directories.
 
@@ -256,17 +251,12 @@ def _load_config(args: argparse.Namespace, logger: logging.Logger, USE_MPI=False
     """
     config_file = Path(args.CONFIG_FILE)
     if not config_file.exists():
-        logger.error(f"Configuration file not found: {config_file}")
+        raise ValueError(f"Configuration file not found: {config_file}")
         sys.exit(1)
 
     # Load YAML file
-    try:
-        with open(config_file) as cfgfile:
-            config_dict = yaml.safe_load(cfgfile)
-    except yaml.YAMLError as e:
-        logger.error(f"Invalid YAML syntax in {config_file}")
-        logger.error(e)
-        sys.exit(1)
+    with open(config_file) as cfgfile:
+        config_dict = yaml.safe_load(cfgfile)
 
     # Validate required keys
     required_keys = set(
@@ -282,24 +272,13 @@ def _load_config(args: argparse.Namespace, logger: logging.Logger, USE_MPI=False
     missing_keys = [key for key in required_keys if key not in config_dict]
 
     if missing_keys:
-        logger.error(f"Missing required configuration keys: {missing_keys}")
-        sys.exit(1)
+        raise ValueError(f"Missing required configuration keys: {missing_keys}")
 
     # Create Config object from dictionary and args
     config = Config.from_dict(config_dict, args, USE_MPI=USE_MPI)
 
-    logger.info(f"Loaded configuration from: {config_file}")
-
     # Set up output directory structure
-    _create_output_directories(config.OUTPUT_DIR, config_file, logger, force=args.FORCE_OVERRIDE)
-
-    # Log configuration summary
-    logger.info("Configuration finalized successfully:")
-    logger.info(f"-- Data: {Path(config.data_input).absolute()}")
-    logger.info(f"-- Simulation: {Path(config.sim_input).absolute()}")
-    logger.info(f"-- Parameters to fit: {', '.join(config.fitted_params.keys())}")
-    logger.info(f"-- Output directory: {Path(config.OUTPUT_DIR).absolute()}")
-    logger.info(f"-- USE MPI: {USE_MPI}")
+    _create_output_directories(config.OUTPUT_DIR, config_file, force=args.FORCE_OVERRIDE)
 
     return config
 
@@ -319,15 +298,15 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "CONFIG_FILE",
-        type=str,
-        help="Path to YAML configuration file (required)",
-    )
-
-    parser.add_argument(
         "OUTPUT_DIR",
         type=str,
         help="Path to output directory (required)",
+    )
+
+    parser.add_argument(
+        "--CONFIG_FILE",
+        type=str,
+        help="Path to YAML configuration file",
     )
 
     parser.add_argument(
@@ -405,7 +384,7 @@ def _get_mpi_info() -> tuple[int, int]:
 
 
 def _handle_resume(
-    config: Config,
+    args: argparse.Namespace,
     resume_dir: Path,
     logger: logging.Logger,
 ) -> None:
@@ -428,11 +407,11 @@ def _handle_resume(
         FileNotFoundError: If `resume_dir` does not exist.
         RuntimeError: If no chain files are found in `resume_dir/chains/`.
     """
-    resume_dir = Path(resume_dir)
+    resume_dir = Path(args.RESUME)
     if not resume_dir.exists():
         raise FileNotFoundError(f"Resume directory not found: {resume_dir.absolute()}")
 
-    new_outdir = Path(config.OUTPUT_DIR)
+    new_outdir = Path(args.OUTPUT_DIR)
     old_chains_dir = resume_dir / "chains"
     new_chains_dir = new_outdir / "chains"
 
@@ -447,15 +426,13 @@ def _handle_resume(
     for chain_file in chain_files:
         dest = new_chains_dir / chain_file.name
         shutil.copy2(chain_file, dest)
-        logger.info(f"Copied chain: {chain_file.name} -> {dest}")
 
     # Copy YAML config files from root of old outdir for provenance
     for cfg_file in resume_dir.glob("*.yml"):
         dest = new_outdir / f"resumed_from_{cfg_file.name}"
         shutil.copy2(cfg_file, dest)
-        logger.info(f"Copied old config: {cfg_file.name} -> {dest.name}")
 
-    logger.info(f"Resume setup complete: {len(chain_files)} chain file(s) copied from {resume_dir}")
+    return _load_config(args, USE_MPI=USE_MPI)
 
 
 def _install_mpi_excepthook() -> None:
@@ -520,18 +497,43 @@ def main() -> int:
     if is_master:
         # Master process (rank 0) does full setup
         args = get_args()
-        # Set debug flag
-        debug = args.TEST_RUN or args.DEBUG_RUN or args.DEBUG_FULL
-        setup_logging(debug=debug, verbose=args.VERBOSE)
-        logger = get_logger()
-        logger.info(__dust2dust_str__)
-
-        config = _load_config(args, logger, USE_MPI=USE_MPI)
-        add_file_handler(str(Path(config.OUTPUT_DIR) / "logs" / "master.log"))
-        logger.info("Master log file created.")
+        if not args.RESUME and not args.CONFIG_FILE:
+            raise ValueError(
+                "Configuration file must be provided with --CONFIG_FILE for new runs or --RESUME for resumed runs."
+            )
+        elif args.RESUME and args.CONFIG_FILE:
+            raise ValueError(
+                "Cannot specify both --CONFIG_FILE and --RESUME. Provide a config file for new runs or a resume directory for resuming."
+            )
 
         if args.RESUME:
-            _handle_resume(config, Path(args.RESUME), logger)
+            config = _handle_resume(args, USE_MPI=USE_MPI)
+        else:
+            # Set debug flag
+            debug = args.TEST_RUN or args.DEBUG_RUN or args.DEBUG_FULL
+            config = _load_config(args, USE_MPI=USE_MPI)
+
+        setup_logging(
+            debug=debug,
+            verbose=args.VERBOSE,
+            log_file=str(Path(config.OUTPUT_DIR) / "logs" / "master.log"),
+        )
+
+        logger = get_logger()
+
+        logger.info(__dust2dust_str__)
+        # Log configuration summary
+        logger.info("Configuration finalized successfully:")
+        if args.CONFIG_FILE:
+            logger.info(f"Configuration loaded from: {args.CONFIG_FILE}")
+        if args.RESUME:
+            logger.info(f"Resuming from previous run: {args.RESUME}")
+        logger.info(f"-- Data: {config.data_input.absolute()}")
+        logger.info(f"-- Simulation: {config.sim_input.absolute()}")
+        logger.info(f"-- Simulation SUBSAMPLING RATIO: {config.subsampling_ratio}")
+        logger.info(f"-- Parameters to fit: {', '.join(config.fitted_params.keys())}")
+        logger.info(f"-- Output directory: {config.OUTPUT_DIR.absolute()}")
+        logger.info(f"-- USE MPI: {USE_MPI}")
 
         realdata_salt2mu_results = _init_salt2mu_realdata(config, logger, debug=debug)
 
